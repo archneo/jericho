@@ -42,7 +42,7 @@ function initAgentsTab() {
         case 'ollama': window.location.href = '/platform/ollama/'; break;
         case 'openclaw': window.location.href = '/platform/openclaw/'; break;
         case 'refresh': window.location.reload(true); break;
-        case 'info': alert('Tailscale IP: 100.114.140.23\nPorts: 9000 (main), 9001 (direct API)'); break;
+        case 'info': alert('Tailscale IP: YOUR_TAILSCALE_IP\nPorts: 9000 (main), 9001 (direct API)'); break;
       }
     });
   }

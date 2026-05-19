@@ -195,7 +195,7 @@ function renderThemePreview(theme) {
     </div>
     <div class="tp-bar" style="background:${t.surface};border-color:${t.border};">
       <span class="tp-dot" style="background:${t.accent};"></span>
-      <span style="color:${t['text-dim']};">Online · 100.114.140.23</span>
+      <span style="color:${t['text-dim']};">Online · YOUR_TAILSCALE_IP</span>
     </div>
   `;
   wrap.style.background = t.bg;
