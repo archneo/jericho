@@ -40,11 +40,11 @@ fi
 if [ ! -f public-routes.json ]; then
   cat > public-routes.json <<'EOF'
 [
-  {"domain": "trilokventures.org", "url": "https://trilokventures.org", "port": 8888},
-  {"domain": "sattva.trilokventures.org", "url": "https://sattva.trilokventures.org", "port": 8889},
-  {"domain": "odoo.trilokventures.org", "url": "https://odoo.trilokventures.org", "port": 8069},
-  {"domain": "n8n.trilokventures.org", "url": "https://n8n.trilokventures.org", "port": 8088},
-  {"domain": "nc.trilokventures.org", "url": "https://nc.trilokventures.org", "port": 5679}
+  {"domain": "YOUR_DOMAIN", "url": "https://YOUR_DOMAIN", "port": 8888},
+  {"domain": "sattva.YOUR_DOMAIN", "url": "https://sattva.YOUR_DOMAIN", "port": 8889},
+  {"domain": "odoo.YOUR_DOMAIN", "url": "https://odoo.YOUR_DOMAIN", "port": 8069},
+  {"domain": "n8n.YOUR_DOMAIN", "url": "https://n8n.YOUR_DOMAIN", "port": 8088},
+  {"domain": "nc.YOUR_DOMAIN", "url": "https://nc.YOUR_DOMAIN", "port": 5679}
 ]
 EOF
   echo "Created public-routes.json"
