@@ -1,0 +1,48 @@
+services:
+  jericho-api:
+    build: ./api
+    container_name: jericho-api
+    network_mode: host
+    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "9001"]
+    volumes:
+      - /srv:/srv
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - YOUR_TAILSCALE_SOCK_PATH:YOUR_TAILSCALE_SOCK_PATH
+      - /home/YOUR_USER/.kimi/sessions:/home/YOUR_USER/.kimi/sessions:ro
+      - /proc:/host/proc:ro
+      - jericho-data:/data
+    environment:
+      - JERICHO_SECRET_KEY=${JERICHO_SECRET_KEY}
+      - JERICHO_PASSPHRASE_HASH=${JERICHO_PASSPHRASE_HASH}
+      - JERICHO_TOTP_SECRET=${JERICHO_TOTP_SECRET}
+      - HOST_BRIDGE_URL=http://127.0.0.1:9998
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9001/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
+    restart: unless-stopped
+
+  ttyd:
+    image: tsl0922/ttyd:latest
+    container_name: jericho-ttyd
+    command: ttyd -W -p 7681 bash -l
+    ports:
+      - "127.0.0.1:7681:7681"
+    restart: unless-stopped
+
+  code-server:
+    image: codercom/code-server:latest
+    container_name: jericho-code
+    command: ["--bind-addr", "0.0.0.0:8080", "."]
+    environment:
+      - PASSWORD=${CODE_SERVER_PASSWORD}
+    volumes:
+      - /srv:/srv
+    ports:
+      - "127.0.0.1:8080:8080"
+    restart: unless-stopped
+
+volumes:
+  jericho-data:

@@ -1,0 +1,9 @@
+[
+  {"domain": "YOUR_DOMAIN", "url": "https://YOUR_DOMAIN", "port": 8888, "description": "Trilok Ventures HoldCo Landing"},
+  {"domain": "sattva.YOUR_DOMAIN", "url": "https://sattva.YOUR_DOMAIN", "port": 8889, "description": "Sattva Brokers Odoo Portal"},
+  {"domain": "trilokventures.com", "url": "https://trilokventures.com", "port": 8080, "description": "Trilok Ventures Redirect/Landing"},
+  {"domain": "n8n.trilokventures.com", "url": "https://n8n.trilokventures.com", "port": 5679, "description": "n8n Automation Platform"},
+  {"domain": "vault.trilokventures.com", "url": "https://vault.trilokventures.com", "port": 8088, "description": "Nextcloud Document Vault"},
+  {"domain": "bridge.sattva.YOUR_DOMAIN", "url": "https://bridge.sattva.YOUR_DOMAIN", "port": 8001, "description": "Sattva Legacy Bridge"},
+  {"domain": "sattva-brokers.YOUR_DOMAIN", "url": "https://sattva-brokers.YOUR_DOMAIN", "port": 443, "description": "Sattva Portal (tunnel 2)"}
+]

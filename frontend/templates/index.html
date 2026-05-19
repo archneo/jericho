@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta id="viewport-meta" name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Jericho">
+  <title>Jericho Command Center</title>
+  <link rel="manifest" href="static/manifest.json?v=20">
+  <link rel="apple-touch-icon" href="static/icons/icon-192x192.png?v=20">
+  <link rel="stylesheet" href="static/css/jericho.css?v=20">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+</head>
+<body>
+  <div id="app">
+    <!-- Dashboard only — auth page removed for prototype -->
+    <section id="dashboard" class="view active">
+      <header class="topbar">
+        <div class="logo">⬡ Jericho <span class="build-badge">b21</span></div>
+        <button id="fs-toggle" class="fs-toggle" aria-label="Toggle fullscreen">⛶</button>
+        <div class="topbar-right">
+          <span id="capability-badge" class="cap-badge free">Free</span>
+          <button id="nav-menu-btn" class="nav-menu-btn" aria-expanded="false" aria-label="Menu">☰</button>
+        </div>
+        <nav id="nav-overlay" class="nav-overlay" aria-hidden="true">
+          <div class="nav-overlay-header">
+            <span>Menu</span>
+            <button class="nav-overlay-close" aria-label="Close menu">✕</button>
+          </div>
+          <button class="nav-tab active" data-tab="projects">📁 Projects</button>
+          <button class="nav-tab" data-tab="system">📊 System</button>
+          <button class="nav-tab" data-tab="agents">⚡ Quick Actions</button>
+          <button class="nav-tab" data-tab="platforms">🤖 Platforms</button>
+          <button class="nav-tab" data-tab="services">🌐 Services</button>
+          <button class="nav-tab" data-tab="kimi">🧠 Kimi</button>
+          <button class="nav-tab" data-tab="terminal">💻 Terminal</button>
+          <button class="nav-tab" data-tab="code">📝 Code</button>
+          <button class="nav-tab" data-tab="notes">📋 Notes</button>
+          <button class="nav-tab" data-tab="capture">📸 Capture</button>
+          <button class="nav-tab" id="nav-theme-btn">🎨 Themes</button>
+          <button class="nav-tab" id="nav-logout">🚪 Logout</button>
+          <div class="nav-version">
+            <button class="nav-version-toggle" id="nav-version-toggle" aria-expanded="false">
+              <span>⬡ Jericho</span>
+              <span class="build-badge">b20</span>
+              <span class="dev-tag">dev</span>
+              <span class="version-chevron">▾</span>
+            </button>
+            <div class="nav-changelog" id="nav-changelog" aria-hidden="true"></div>
+          </div>
+          <div class="nav-desktop-toggle">
+            <label class="toggle-row">
+              <span>🖥️ Desktop Mode</span>
+              <input type="checkbox" id="desktop-mode-check" checked>
+              <span class="toggle-switch"></span>
+            </label>
+          </div>
+        </nav>
+        <div id="theme-overlay" class="theme-overlay" aria-hidden="true">
+          <div class="nav-overlay-header">
+            <span>🎨 Theme Gallery</span>
+            <button class="nav-overlay-close" id="theme-overlay-close" aria-label="Close themes">✕</button>
+          </div>
+          <div class="theme-section">
+            <div class="theme-section-label">Presets</div>
+            <div class="theme-grid" id="theme-presets"></div>
+          </div>
+          <div class="theme-section">
+            <div class="theme-section-label">Custom Themes</div>
+            <div class="theme-grid" id="theme-custom"></div>
+          </div>
+          <div class="theme-section">
+            <div class="theme-section-label">AI Theme Generator</div>
+            <div class="theme-gen-row">
+              <input type="text" id="theme-gen-input" placeholder="Describe your dream theme..." maxlength="200">
+              <button id="theme-gen-btn">Generate</button>
+            </div>
+            <div class="theme-gen-status" id="theme-gen-status"></div>
+            <div id="theme-preview-wrap" style="display:none;">
+              <div class="theme-preview-mini" id="theme-preview-mini"></div>
+              <div class="theme-tweak-area" id="theme-tweak-area">
+                <textarea id="theme-tweak-json" spellcheck="false"></textarea>
+              </div>
+              <div class="theme-actions">
+                <button class="btn-tweak" id="theme-tweak-btn">Tweak</button>
+                <button class="btn-discard" id="theme-discard-btn">Discard</button>
+                <button class="btn-apply" id="theme-apply-btn">Apply Theme</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main class="main-content">
+        <!-- Projects / File Browser -->
+        <div id="tab-projects" class="tab-panel active">
+          <div id="fb-header" style="flex-shrink:0;padding-bottom:8px;">
+            <h2 style="margin:0 0 8px 0;">File Browser</h2>
+            <div id="file-browser-bar" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+              <button class="btn-small" id="fb-parent" style="display:none;">⬆ Parent</button>
+              <span id="fb-path" style="color:var(--text-dim);font-size:0.85rem;font-family:monospace;">/srv</span>
+              <button class="btn-small" id="fb-mkdir">📁 New Folder</button>
+              <input type="file" id="fb-upload-input" style="display:none;" multiple>
+              <button class="btn-small" id="fb-upload-btn">⬆ Upload</button>
+              <button class="btn-small" id="fb-refresh" style="margin-left:auto;">🔄 Refresh</button>
+              <label class="btn-small" id="fb-autorefresh-label" style="cursor:pointer;display:flex;align-items:center;gap:4px;">
+                <input type="checkbox" id="fb-autorefresh-check" checked style="margin:0;">
+                <span style="font-size:11px;">⟳ Auto</span>
+              </label>
+            </div>
+          </div>
+          <div id="fb-scroll-area" style="flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;scroll-behavior:smooth;padding-bottom:60px;">
+            <div id="projects-grid" class="card-grid">
+              <p id="fb-loading" style="color:var(--text-dim);padding:20px;text-align:center;">Loading files...</p>
+            </div>
+            <button id="fb-scroll-top" style="display:none;position:sticky;bottom:16px;left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--border);color:var(--text);padding:8px 16px;border-radius:20px;box-shadow:0 2px 8px rgba(0,0,0,0.3);z-index:10;">⬆ Top</button>
+          </div>
+        </div>
+
+        <!-- System Monitor -->
+        <div id="tab-system" class="tab-panel">
+          <!-- Populated by system.js -->
+        </div>
+
+        <!-- Agents -->
+        <div id="tab-agents" class="tab-panel">
+          <!-- Populated by agents.js -->
+        </div>
+
+        <!-- Platforms -->
+        <div id="tab-platforms" class="tab-panel">
+          <h2>Agent Platforms</h2>
+          <div id="platforms-grid" class="card-grid"></div>
+        </div>
+
+        <!-- Services -->
+        <div id="tab-services" class="tab-panel">
+          <h2>Service Directory</h2>
+          <div class="service-tabs">
+            <button class="svc-tab active" data-svc="local">Local Links</button>
+            <button class="svc-tab" data-svc="public">Public Faces</button>
+          </div>
+          <div id="svc-local" class="svc-panel active">
+            <table class="data-table">
+              <thead><tr><th>Port</th><th>URL</th><th>Process</th></tr></thead>
+              <tbody id="local-services-body"></tbody>
+            </table>
+          </div>
+          <div id="svc-public" class="svc-panel">
+            <table class="data-table">
+              <thead><tr><th>Domain</th><th>Public URL</th><th>Port</th><th>Description</th></tr></thead>
+              <tbody id="public-services-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Kimi Sessions -->
+        <div id="tab-kimi" class="tab-panel">
+          <h2>Kimi Sessions</h2>
+          <div id="kimi-sessions-grid" class="card-grid"></div>
+        </div>
+
+        <!-- Terminal -->
+        <div id="tab-terminal" class="tab-panel">
+          <div id="terminal-toolbar">
+            <select id="terminal-shell">
+              <option value="bash">Bash</option>
+              <option value="kimi">kimi (new session)</option>
+            </select>
+            <span id="agent-state-badge" class="agent-state idle">● Idle</span>
+            <span id="terminal-status">Disconnected</span>
+            <button id="terminal-connect" class="btn-primary">Connect</button>
+          </div>
+          <div id="terminal-container"></div>
+          <div id="mobile-keyboard-bar" class="keyboard-bar collapsed">
+            <div class="kb-groups">
+              <div class="kb-group" id="kb-modifiers">
+                <button data-key="\x03" class="kb-btn" title="Ctrl+C">⛔</button>
+                <button data-key="\x04" class="kb-btn" title="Ctrl+D">⏹️</button>
+                <button data-key="\x0c" class="kb-btn" title="Ctrl+L">🧹</button>
+                <button data-key="\x12" class="kb-btn" title="Ctrl+R">🔍</button>
+                <button data-key="\x1b" class="kb-btn" title="Esc">ESC</button>
+                <button data-key="\t" class="kb-btn" title="Tab">TAB</button>
+                <button data-mod="ctrl" class="kb-btn mod" title="Ctrl">CTRL</button>
+                <button data-key="|" class="kb-btn" title="Pipe">|</button>
+                <button data-key="~" class="kb-btn" title="Tilde">~</button>
+                <button data-key="$" class="kb-btn" title="Dollar">$</button>
+                <button data-key=">" class="kb-btn" title="Redirect">&gt;</button>
+                <button data-key="\x1b[A" class="kb-btn" title="Up">↑</button>
+                <button data-key="\x1b[B" class="kb-btn" title="Down">↓</button>
+                <button data-key="\x1b[D" class="kb-btn" title="Left">←</button>
+                <button data-key="\x1b[C" class="kb-btn" title="Right">→</button>
+              </div>
+              <div class="kb-divider"></div>
+              <div class="kb-group kb-scroll" id="kb-commands">
+                <!-- Dynamic command chips loaded by JS -->
+                <span class="kb-loading">Loading commands...</span>
+              </div>
+              <div class="kb-divider"></div>
+              <div class="kb-group kb-scroll" id="kb-shortcuts">
+                <!-- Dynamic shortcut chips loaded by JS -->
+              </div>
+            </div>
+            <button id="kb-toggle" class="kb-toggle">⌨️</button>
+          </div>
+        </div>
+
+        <!-- Code -->
+        <div id="tab-code" class="tab-panel">
+          <h2>Code Forge</h2>
+          <div class="dex-warning" id="dex-warning">
+            <p>⚠️ code-server is best used in Samsung DeX or on a desktop. Phone portrait mode is limited.</p>
+            <button id="load-code">Load code-server anyway</button>
+          </div>
+          <iframe id="code-frame" src="" style="display:none;"></iframe>
+        </div>
+
+        <!-- Notes -->
+        <div id="tab-notes" class="tab-panel">
+          <h2>Scratchpad</h2>
+          <div class="notes-layout">
+            <aside class="notes-list">
+              <button id="new-note-btn" class="btn-small">+ New Note</button>
+              <ul id="notes-files"></ul>
+            </aside>
+            <div class="notes-editor">
+              <input type="text" id="note-name" placeholder="note-name">
+              <textarea id="note-content" placeholder="Start writing..."></textarea>
+              <div class="editor-actions">
+                <button id="save-note" class="btn-primary">Save</button>
+                <span id="note-status"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Capture -->
+        <div id="tab-capture" class="tab-panel">
+          <h2>Quick Capture</h2>
+          <p>Snap a photo or choose a file to upload to /srv/inbox</p>
+          <input type="file" id="capture-input" accept="image/*,video/*,.pdf,.md,.txt" capture="environment">
+          <button id="upload-btn" class="btn-primary">Upload</button>
+          <p id="upload-status"></p>
+        </div>
+      </main>
+
+      <footer class="statusbar">
+        <span id="docker-pulse">Docker: scanning...</span>
+        <span id="tailscale-pulse">Tailscale: scanning...</span>
+      </footer>
+    </section>
+  </div>
+
+  <!-- Debug overlay -->
+  <div id="debug-wrap" style="display:none;position:fixed;bottom:0;left:0;right:0;z-index:9999;background:var(--bg);color:var(--accent);font-family:monospace;font-size:11px;max-height:200px;overflow:auto;border-top:1px solid var(--border);">
+    <div style="padding:4px 8px;background:var(--surface);display:flex;justify-content:space-between;align-items:center;">
+      <strong>Debug Log</strong>
+      <button id="debug-close" style="background:var(--surface-2);color:var(--text);border:none;padding:2px 8px;font-size:11px;">Close</button>
+    </div>
+    <pre id="debug-panel" style="margin:0;padding:8px;white-space:pre-wrap;word-break:break-word;"></pre>
+  </div>
+  <button id="debug-toggle" style="position:fixed;bottom:4px;right:4px;z-index:10000;background:var(--surface);color:var(--text-dim);border:none;padding:2px 6px;font-size:10px;opacity:0.3;">dbg</button>
+
+  <!-- File Preview Modal -->
+  <div id="preview-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:9998;background:rgba(0,0,0,0.85);padding:16px;overflow:auto;">
+    <div style="max-width:900px;margin:0 auto;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+        <h3 id="preview-title" style="margin:0;font-size:1rem;word-break:break-all;">Preview</h3>
+        <button id="preview-close" style="background:transparent;border:1px solid var(--border);color:var(--text);padding:4px 12px;border-radius:6px;">✕ Close</button>
+      </div>
+      <div id="preview-body" style="max-height:70vh;overflow:auto;background:var(--bg);border-radius:var(--radius);padding:12px;"></div>
+    </div>
+  </div>
+
+  <script>const BUILD_ID = '20';</script>
+  <script>
+    // Emergency: force-unregister old service worker and install no-op replacement
+    (function(){
+      if(!('serviceWorker' in navigator)) return;
+      // Prevent infinite reload loop — only run once per session
+      if(sessionStorage.getItem('sw_cleared_v10')) return;
+      navigator.serviceWorker.getRegistrations().then(function(regs){
+        var hadOld = regs.length > 0;
+        regs.forEach(function(reg){ reg.unregister(); });
+        // Also nuke all caches directly from the page
+        if('caches' in window){
+          caches.keys().then(function(names){
+            return Promise.all(names.map(function(n){ return caches.delete(n); }));
+          });
+        }
+        // Register new no-op SW with cache bust
+        navigator.serviceWorker.register('static/sw.js?v=15', {scope: '/'}).then(function(){
+          console.log('[SW] new no-op registered');
+          if(hadOld){
+            sessionStorage.setItem('sw_cleared_v10', '1');
+            console.log('[SW] old SW unregistered, reloading once...');
+            window.location.reload();
+          }
+        }).catch(function(e){ console.error('[SW] register failed', e); });
+      });
+    })();
+  </script>
+  <script src="static/js/jericho.js?v=20"></script>
+</body>
+</html>

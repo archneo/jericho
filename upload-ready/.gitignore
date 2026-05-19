@@ -1,0 +1,54 @@
+# ─── Secrets ──────────────────────────────────────────────────────────────────
+.env
+*.env.local
+*.env.production
+
+# ─── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+
+# ─── Go ───────────────────────────────────────────────────────────────────────
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+
+# ─── Node (if added later) ────────────────────────────────────────────────────
+node_modules/
+npm-debug.log*
+
+# ─── Data & Logs ──────────────────────────────────────────────────────────────
+data/
+*.db
+*.db-journal
+*.log
+*.gz
+terminal-sessions/
+
+# ─── IDE ──────────────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ─── OS ───────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ─── Docker ───────────────────────────────────────────────────────────────────
+.dockerignore
+
+# ─── Upload-ready sub-bucket (managed separately) ─────────────────────────────
+# If you want to version the upload-ready folder too, remove this line.
+# upload-ready/
