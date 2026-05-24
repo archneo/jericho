@@ -10,84 +10,540 @@ let sessionCheckInterval = null;
 let capabilities = {};
 let debugLines = [];
 
+// ─── Sudo State ──────────────────────────────────────────────────────────────
+let sudoTicket = null;
+let sudoExpiry = null;
+let sudoTimer = null;
+
+function isSudoActive() {
+  return sudoTicket && Date.now() < sudoExpiry;
+}
+
+function clearSudo() {
+  sudoTicket = null;
+  sudoExpiry = null;
+  clearInterval(sudoTimer);
+  sudoTimer = null;
+  updateSudoUI();
+}
+
+function updateSudoUI() {
+  const btn = document.getElementById('sudo-toggle');
+  const countdown = document.getElementById('sudo-countdown');
+  if (!btn || !countdown) return;
+  if (isSudoActive()) {
+    btn.classList.add('active');
+    const secs = Math.max(0, Math.floor((sudoExpiry - Date.now()) / 1000));
+    countdown.textContent = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+  } else {
+    btn.classList.remove('active');
+    countdown.textContent = '';
+  }
+}
+
+function startSudoTimer() {
+  clearInterval(sudoTimer);
+  sudoTimer = setInterval(() => {
+    if (!isSudoActive()) {
+      clearSudo();
+      showToast('Sudo mode expired', true);
+    } else {
+      updateSudoUI();
+    }
+  }, 1000);
+  updateSudoUI();
+}
+
+function showSudoAuthModal() {
+  return new Promise((resolve) => {
+    const modal = document.getElementById('sudo-modal');
+    const passphraseInput = document.getElementById('sudo-passphrase');
+    const totpInput = document.getElementById('sudo-totp');
+    const errorDiv = document.getElementById('sudo-error');
+    const confirmBtn = document.getElementById('sudo-confirm');
+    const cancelBtn = document.getElementById('sudo-cancel');
+
+    if (!modal) { resolve(false); return; }
+
+    passphraseInput.value = '';
+    totpInput.value = '';
+    errorDiv.style.display = 'none';
+    errorDiv.textContent = '';
+    modal.classList.add('show');
+    passphraseInput.focus();
+
+    const cleanup = () => {
+      modal.classList.remove('show');
+      confirmBtn.onclick = null;
+      cancelBtn.onclick = null;
+    };
+
+    cancelBtn.onclick = () => { cleanup(); resolve(false); };
+    confirmBtn.onclick = async () => {
+      const passphrase = passphraseInput.value.trim();
+      const totp = totpInput.value.trim();
+      if (!passphrase || !totp || totp.length !== 6) {
+        errorDiv.textContent = 'Enter passphrase and 6-digit TOTP code';
+        errorDiv.style.display = 'block';
+        return;
+      }
+      confirmBtn.disabled = true;
+      confirmBtn.textContent = 'Activating...';
+      try {
+        const res = await fetch(API_BASE + '/tickets/sudo', {
+          method: 'POST',
+          headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({ passphrase, totp }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          errorDiv.textContent = data.detail || 'Authentication failed';
+          errorDiv.style.display = 'block';
+          confirmBtn.disabled = false;
+          confirmBtn.textContent = 'Activate';
+          return;
+        }
+        sudoTicket = data.ticket;
+        sudoExpiry = Date.now() + (data.expires_in_seconds * 1000);
+        startSudoTimer();
+        cleanup();
+        showToast('Sudo mode activated — 2 minutes');
+        resolve(true);
+      } catch (e) {
+        errorDiv.textContent = 'Network error: ' + e.message;
+        errorDiv.style.display = 'block';
+        confirmBtn.disabled = false;
+        confirmBtn.textContent = 'Activate';
+      }
+    };
+  });
+}
+
+async function executeSudoCommand(command, description) {
+  if (!isSudoActive()) {
+    const ok = await showSudoAuthModal();
+    if (!ok) return;
+  }
+  const confirmed = confirm(`Execute with sudo:\n${description || command}`);
+  if (!confirmed) return;
+  try {
+    const res = await fetch(API_BASE + '/sudo/exec', {
+      method: 'POST',
+      headers: {
+        ...getAuthHeaders(),
+        'Content-Type': 'application/json',
+        'X-Sudo-Ticket': sudoTicket,
+      },
+      body: JSON.stringify({ command }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      showToast('Sudo failed: ' + (data.detail || 'Unknown error'), true);
+      return;
+    }
+    const exitCode = data.exit_code ?? 0;
+    const output = data.output || '';
+    if (exitCode !== 0) {
+      showToast(`Exit code ${exitCode}`, true);
+    } else {
+      showToast('Command executed successfully');
+    }
+    // Show output in a simple alert/modal for now
+    if (output.length > 200) {
+      debugLog('[sudo] ' + command + '\n' + output.slice(0, 500));
+      showToast('Output logged to debug panel');
+    }
+    return data;
+  } catch (e) {
+    showToast('Sudo execution error: ' + e.message, true);
+  }
+}
+
+function initSudoUI() {
+  // Shield button is now an <a> tag with target="_blank" in index.html
+  // No JS listener needed — native link handles navigation
+  return;
+}
+
 // ─── Theme Engine ────────────────────────────────────────────────────────────
-const PRESET_THEMES = [
+const MINIMAL_THEMES = [
   {
-    id: 'matrix', name: 'Matrix Terminal', description: 'Green phosphor on black CRT',
-    category: 'preset',
+    id: 'paper', name: 'Paper Desktop', category: 'preset',
+    description: 'Warm beige canvas. Clean, focused, human.',
     tokens: {
-      bg: '#000000', surface: '#0d0208', 'surface-2': '#001100',
-      accent: '#2d8a5e', 'accent-2': '#4db87a', text: '#e8f0ec',
+      bg: '#e8e0d4', surface: '#f5f5f0', 'surface-2': '#e8e8e0',
+      accent: '#f5a623', 'accent-2': '#e09400', text: '#2d2d2d',
+      'text-dim': '#6b6b6b', danger: '#ff5f57', warn: '#ffbd2e',
+      border: '#d0d0d0', radius: '8px', shadow: '0 8px 32px rgba(0,0,0,0.15)'
+    },
+    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+    effects: { textShadow: 'none', scanlineOpacity: '0', glowIntensity: '0' }
+  },
+  {
+    id: 'slate', name: 'Slate Dark', category: 'preset',
+    description: 'Dark mode with warm accents.',
+    tokens: {
+      bg: '#1a1a2e', surface: '#252535', 'surface-2': '#2a2a3a',
+      accent: '#f5a623', 'accent-2': '#e09400', text: '#e8e8e8',
+      'text-dim': '#a0a0b0', danger: '#ff5f57', warn: '#ffbd2e',
+      border: '#3a3a4a', radius: '8px', shadow: '0 8px 32px rgba(0,0,0,0.4)'
+    },
+    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+    effects: { textShadow: 'none', scanlineOpacity: '0', glowIntensity: '0' }
+  },
+  {
+    id: 'construct', name: 'The Construct', category: 'preset',
+    description: 'Wake up, Neo... Green phosphor on black CRT.',
+    tokens: {
+      bg: '#0d0208', surface: '#001100', 'surface-2': '#003300',
+      accent: '#00ff41', 'accent-2': '#4db87a', text: '#e8f0ec',
       'text-dim': '#8fa89a', danger: '#ff3333', warn: '#ffaa00',
       border: '#1f3329', radius: '2px', shadow: '0 0 10px rgba(0,255,65,0.08)'
     },
     fontFamily: "'JetBrains Mono', 'Fira Code', 'Courier New', monospace",
     effects: { textShadow: '0 0 5px rgba(0,255,65,0.3)', scanlineOpacity: '0.4', glowIntensity: '0.3' }
-  },
-  {
-    id: 'cyberpunk', name: 'Cyberpunk', description: 'Neon amber and purple on dark slate',
-    category: 'preset',
-    tokens: {
-      bg: '#0a0a12', surface: '#12121f', 'surface-2': '#1a1a2e',
-      accent: '#ff9500', 'accent-2': '#b967ff', text: '#e8e8f0',
-      'text-dim': '#a0a0b0', danger: '#ff3366', warn: '#ffaa00',
-      border: '#2a2a40', radius: '4px', shadow: '0 0 12px rgba(255,149,0,0.15)'
-    },
-    fontFamily: "'JetBrains Mono', 'Fira Code', 'Courier New', monospace",
-    effects: { textShadow: '0 0 6px rgba(255,149,0,0.25)', scanlineOpacity: '0.25', glowIntensity: '0.4' }
-  },
-  {
-    id: 'ocean', name: 'Ocean', description: 'Deep sea blues and teals',
-    category: 'preset',
-    tokens: {
-      bg: '#020617', surface: '#0f172a', 'surface-2': '#1e293b',
-      accent: '#00d4aa', 'accent-2': '#0891b2', text: '#e0f2fe',
-      'text-dim': '#7dd3fc', danger: '#f87171', warn: '#fbbf24',
-      border: '#134e4a', radius: '6px', shadow: '0 0 12px rgba(0,212,170,0.1)'
-    },
-    fontFamily: "'Inter', 'Segoe UI', system-ui, sans-serif",
-    effects: { textShadow: 'none', scanlineOpacity: '0', glowIntensity: '0' }
-  },
-  {
-    id: 'solarized', name: 'Solarized', description: 'Classic developer color scheme',
-    category: 'preset',
-    tokens: {
-      bg: '#002b36', surface: '#073642', 'surface-2': '#586e75',
-      accent: '#268bd2', 'accent-2': '#2aa198', text: '#93a1a1',
-      'text-dim': '#586e75', danger: '#dc322f', warn: '#b58900',
-      border: '#073642', radius: '3px', shadow: '0 2px 8px rgba(0,0,0,0.3)'
-    },
-    fontFamily: "'JetBrains Mono', 'Fira Code', 'Courier New', monospace",
-    effects: { textShadow: 'none', scanlineOpacity: '0', glowIntensity: '0' }
-  },
-  {
-    id: 'midnight', name: 'Midnight', description: 'Clean dark with soft blue accents',
-    category: 'preset',
-    tokens: {
-      bg: '#0f172a', surface: '#1e293b', 'surface-2': '#334155',
-      accent: '#60a5fa', 'accent-2': '#3b82f6', text: '#f1f5f9',
-      'text-dim': '#cbd5e1', danger: '#ef4444', warn: '#f59e0b',
-      border: '#1e293b', radius: '8px', shadow: '0 4px 16px rgba(0,0,0,0.4)'
-    },
-    fontFamily: "'Inter', 'Segoe UI', system-ui, sans-serif",
-    effects: { textShadow: 'none', scanlineOpacity: '0', glowIntensity: '0' }
-  },
-  {
-    id: 'amber', name: 'Amber Mono', description: 'Vintage amber phosphor terminal',
-    category: 'preset',
-    tokens: {
-      bg: '#1a0f00', surface: '#2a1a00', 'surface-2': '#3d2600',
-      accent: '#ffb000', 'accent-2': '#cc8800', text: '#ffd4a3',
-      'text-dim': '#b8956a', danger: '#ff4444', warn: '#ffcc00',
-      border: '#4d3300', radius: '0px', shadow: '0 0 8px rgba(255,176,0,0.1)'
-    },
-    fontFamily: "'Courier New', 'Courier', monospace",
-    effects: { textShadow: '0 0 4px rgba(255,176,0,0.3)', scanlineOpacity: '0.35', glowIntensity: '0.3' }
   }
 ];
 
-let _customThemes = [];
-let _candidateTheme = null;
+// ─── Desktop Window Manager ──────────────────────────────────────────────────
+let desktopMode = false;
+let _windowZ = 10;
+const WINDOW_DEFAULTS = {
+  'projects': { title: '📁 File Browser', x: 84, y: 20, w: 520, h: 420, icon: '📁' },
+  'system': { title: '📊 System', x: 624, y: 20, w: 520, h: 420, icon: '📊' },
+  'agents': { title: '⚡ Quick Actions', x: 84, y: 460, w: 520, h: 320, icon: '⚡' },
+  'platforms': { title: '🤖 Platforms', x: 624, y: 460, w: 520, h: 320, icon: '🤖' },
+  'services': { title: '🌐 Services', x: 84, y: 20, w: 600, h: 450, icon: '🌐' },
+  'kimi': { title: '🧠 Kimi', x: 704, y: 20, w: 520, h: 420, icon: '🧠' },
+  'terminal': { title: '💻 Terminal', x: 84, y: 460, w: 720, h: 420, icon: '💻' },
+  'code': { title: '📝 Code', x: 824, y: 460, w: 520, h: 420, icon: '📝' },
+  'notes': { title: '📋 Notes', x: 84, y: 20, w: 520, h: 450, icon: '📋' },
+  'capture': { title: '📸 Capture', x: 624, y: 20, w: 520, h: 420, icon: '📸' },
+};
+
+function bringToFront(winEl) {
+  _windowZ += 1;
+  winEl.style.zIndex = _windowZ;
+  document.querySelectorAll('.app-window').forEach(w => {
+    w.classList.remove('active');
+    w.classList.add('inactive');
+  });
+  winEl.classList.remove('inactive');
+  winEl.classList.add('active');
+  syncSidebarDock();
+}
+
+function makeDraggable(winEl, titlebar) {
+  let isDragging = false;
+  let startX = 0, startY = 0, initialX = 0, initialY = 0;
+  let rafId = null;
+  let pendingX = 0, pendingY = 0;
+
+  function flushTransform() {
+    rafId = null;
+    winEl.style.transform = `translate3d(${pendingX}px, ${pendingY}px, 0)`;
+    winEl.dataset.posX = String(pendingX);
+    winEl.dataset.posY = String(pendingY);
+  }
+
+  titlebar.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('.win-btn')) return;
+    isDragging = true;
+    startX = e.clientX;
+    startY = e.clientY;
+    initialX = parseFloat(winEl.dataset.posX || '0');
+    initialY = parseFloat(winEl.dataset.posY || '0');
+    titlebar.setPointerCapture(e.pointerId);
+    bringToFront(winEl);
+    winEl.classList.add('dragging');
+  });
+
+  titlebar.addEventListener('pointermove', (e) => {
+    if (!isDragging) return;
+    let nx = initialX + e.clientX - startX;
+    let ny = initialY + e.clientY - startY;
+    const maxX = window.innerWidth - winEl.offsetWidth;
+    const maxY = window.innerHeight - winEl.offsetHeight - 48;
+    nx = Math.max(0, Math.min(nx, maxX));
+    ny = Math.max(0, Math.min(ny, maxY));
+    pendingX = nx;
+    pendingY = ny;
+    if (!rafId) {
+      rafId = requestAnimationFrame(flushTransform);
+    }
+  });
+
+  titlebar.addEventListener('pointerup', () => {
+    isDragging = false;
+    winEl.classList.remove('dragging');
+    if (rafId) {
+      cancelAnimationFrame(rafId);
+      flushTransform();
+    }
+  });
+}
+
+function syncTaskbar() {
+  const taskbar = document.getElementById('taskbar');
+  if (!taskbar) return;
+  const items = [];
+  document.querySelectorAll('.app-window').forEach(win => {
+    const tab = win.dataset.tab;
+    const title = win.dataset.title || tab;
+    const minimized = win.classList.contains('minimized');
+    const active = win.classList.contains('active');
+    items.push(`<div class="taskbar-item ${active ? 'active' : ''} ${minimized ? 'minimized' : ''}" data-taskbar="${tab}">${title}</div>`);
+  });
+  taskbar.innerHTML = items.join('');
+}
+
+function createSidebarDock() {
+  let dock = document.getElementById('sidebar-dock');
+  if (dock) return dock;
+  dock = document.createElement('div');
+  dock.id = 'sidebar-dock';
+  dock.className = 'sidebar-dock';
+  Object.keys(WINDOW_DEFAULTS).forEach(tabId => {
+    const def = WINDOW_DEFAULTS[tabId];
+    const item = document.createElement('div');
+    item.className = 'sidebar-dock__item';
+    item.dataset.dockTab = tabId;
+    item.innerHTML = `
+      <span class="sidebar-dock__icon">${def.icon}</span>
+      <span class="sidebar-dock__label">${def.title.replace(/^[^\s]+\s/, '')}</span>
+    `;
+    dock.appendChild(item);
+  });
+  document.getElementById('app').appendChild(dock);
+  return dock;
+}
+
+function syncSidebarDock() {
+  document.querySelectorAll('.sidebar-dock__item').forEach(item => {
+    const tabId = item.dataset.dockTab;
+    const win = document.querySelector(`.app-window[data-tab="${tabId}"]`);
+    item.classList.toggle('active', win && win.classList.contains('active') && !win.classList.contains('minimized') && win.style.display !== 'none');
+  });
+}
+
+function initDesktopMode() {
+  const main = document.querySelector('.main-content');
+  if (!main) return;
+  // Prevent double-init
+  if (main.querySelector('.app-window')) return;
+
+  createSidebarDock();
+
+  const panels = main.querySelectorAll('.tab-panel');
+  panels.forEach(panel => {
+    const tabId = panel.id.replace('tab-', '');
+    const def = WINDOW_DEFAULTS[tabId];
+    if (!def) return;
+
+    const win = document.createElement('div');
+    win.className = 'app-window';
+    win.dataset.tab = tabId;
+    win.dataset.title = def.title;
+    win.style.left = '0px';
+    win.style.top = '0px';
+    win.style.transform = `translate3d(${def.x}px, ${def.y}px, 0)`;
+    win.dataset.posX = String(def.x);
+    win.dataset.posY = String(def.y);
+    win.style.width = def.w + 'px';
+    win.style.height = def.h + 'px';
+    win.style.zIndex = _windowZ++;
+
+    const titlebar = document.createElement('div');
+    titlebar.className = 'window-titlebar';
+    titlebar.innerHTML = `
+      <span class="window-title">${def.title}</span>
+      <div class="window-controls">
+        <button class="win-btn minimize" data-win="${tabId}" title="Minimize"></button>
+        <button class="win-btn maximize" data-win="${tabId}" title="Maximize"></button>
+        <button class="win-btn close" data-win="${tabId}" title="Close"></button>
+      </div>
+    `;
+
+    const content = document.createElement('div');
+    content.className = 'window-content';
+    // Move panel's children into window content
+    while (panel.firstChild) {
+      content.appendChild(panel.firstChild);
+    }
+
+    const resizeHandle = document.createElement('div');
+    resizeHandle.className = 'window-resize-handle';
+
+    win.appendChild(titlebar);
+    win.appendChild(content);
+    win.appendChild(resizeHandle);
+    main.appendChild(win);
+    makeDraggable(win, titlebar);
+  });
+
+  syncTaskbar();
+  syncSidebarDock();
+
+  // Eagerly load all tab scripts so windows populate with data
+  document.querySelectorAll('.app-window').forEach(win => {
+    const tabId = win.dataset.tab;
+    if (tabId) ensureTabScripts('tab-' + tabId);
+  });
+}
+
+function destroyDesktopMode() {
+  const main = document.querySelector('.main-content');
+  if (!main) return;
+  document.querySelectorAll('.app-window').forEach(win => {
+    const tabId = win.dataset.tab;
+    const panel = document.getElementById('tab-' + tabId);
+    const content = win.querySelector('.window-content');
+    if (panel && content) {
+      while (content.firstChild) {
+        panel.appendChild(content.firstChild);
+      }
+    }
+    win.remove();
+  });
+}
+
+function toggleDesktopMode(enabled) {
+  desktopMode = enabled;
+  const main = document.querySelector('.main-content');
+  const desktopBg = document.getElementById('desktop-bg');
+  const taskbar = document.getElementById('taskbar');
+  const checkbox = document.getElementById('window-mode-check');
+  if (checkbox) checkbox.checked = enabled;
+
+  if (enabled) {
+    if (main) main.classList.add('desktop-mode');
+    if (desktopBg) desktopBg.style.display = 'block';
+    initDesktopMode();
+    syncSidebarDock();
+    if (taskbar) taskbar.classList.add('open');
+    // Focus first window
+    const firstWin = document.querySelector('.app-window');
+    if (firstWin) bringToFront(firstWin);
+  } else {
+    if (main) main.classList.remove('desktop-mode');
+    if (desktopBg) desktopBg.style.display = 'none';
+    if (taskbar) taskbar.classList.remove('open');
+    const dock = document.getElementById('sidebar-dock');
+    if (dock) dock.remove();
+    destroyDesktopMode();
+    // Restore default tab
+    const defaultTab = document.querySelector('.nav-tab.active');
+    if (defaultTab) {
+      const tab = defaultTab.dataset.tab;
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      const panel = document.getElementById('tab-' + tab);
+      if (panel) panel.classList.add('active');
+    }
+  }
+}
+
+// Window control event delegation
+document.addEventListener('click', (e) => {
+  const btn = e.target.closest('.win-btn');
+  if (!btn) return;
+  const tabId = btn.dataset.win;
+  const win = document.querySelector(`.app-window[data-tab="${tabId}"]`);
+  if (!win) return;
+
+  if (btn.classList.contains('minimize')) {
+    if (win.classList.contains('minimized')) {
+      win.classList.remove('minimized');
+      win.style.opacity = '';
+      win.style.transform = `translate3d(${win.dataset.posX || 0}px, ${win.dataset.posY || 0}px, 0)`;
+    } else {
+      win.style.opacity = '0';
+      win.style.transform = `translate3d(${win.dataset.posX || 0}px, ${win.dataset.posY || 0}px, 0) scale(0.9)`;
+      setTimeout(() => { win.classList.add('minimized'); }, 320);
+    }
+    syncTaskbar();
+  } else if (btn.classList.contains('maximize')) {
+    const wasMax = win.classList.contains('maximized');
+    if (!wasMax) {
+      win.dataset.preMaxPosX = win.dataset.posX || '0';
+      win.dataset.preMaxPosY = win.dataset.posY || '0';
+      win.dataset.preMaxW = win.style.width;
+      win.dataset.preMaxH = win.style.height;
+      win.classList.add('maximized');
+      win.style.transform = 'translate3d(0, 0, 0)';
+    } else {
+      win.classList.remove('maximized');
+      win.style.width = win.dataset.preMaxW || '520px';
+      win.style.height = win.dataset.preMaxH || '420px';
+      win.style.transform = `translate3d(${win.dataset.preMaxPosX || 0}px, ${win.dataset.preMaxPosY || 0}px, 0)`;
+    }
+  } else if (btn.classList.contains('close')) {
+    win.style.opacity = '0';
+    win.style.transform = `translate3d(${win.dataset.posX || 0}px, ${win.dataset.posY || 0}px, 0) scale(0.8)`;
+    setTimeout(() => { win.style.display = 'none'; syncTaskbar(); syncSidebarDock(); }, 320);
+  }
+});
+
+// Focus on window click
+document.addEventListener('click', (e) => {
+  const win = e.target.closest('.app-window');
+  if (win) bringToFront(win);
+});
+
+// Taskbar click to restore/focus
+document.addEventListener('click', (e) => {
+  const item = e.target.closest('.taskbar-item');
+  if (!item) return;
+  const tabId = item.dataset.taskbar;
+  const win = document.querySelector(`.app-window[data-tab="${tabId}"]`);
+  if (!win) return;
+  const winContent = win.querySelector('.window-content');
+  if (winContent && winContent.children.length === 0) {
+    ensureTabScripts('tab-' + tabId);
+  }
+  if (win.style.display === 'none') {
+    win.style.display = '';
+    win.style.opacity = '0';
+    win.style.transform = `translate3d(${win.dataset.posX || 0}px, ${win.dataset.posY || 0}px, 0) scale(0.8)`;
+    requestAnimationFrame(() => {
+      win.style.opacity = '';
+      win.style.transform = `translate3d(${win.dataset.posX || 0}px, ${win.dataset.posY || 0}px, 0)`;
+    });
+  }
+  if (win.classList.contains('minimized')) {
+    win.classList.remove('minimized');
+    win.style.opacity = '';
+    win.style.transform = `translate3d(${win.dataset.posX || 0}px, ${win.dataset.posY || 0}px, 0)`;
+  }
+  bringToFront(win);
+  syncTaskbar();
+  syncSidebarDock();
+});
+
+// Sidebar dock click to open/focus
+document.addEventListener('click', (e) => {
+  const item = e.target.closest('.sidebar-dock__item');
+  if (!item) return;
+  const tabId = item.dataset.dockTab;
+  const win = document.querySelector(`.app-window[data-tab="${tabId}"]`);
+  if (!win) return;
+  if (win.style.display === 'none') {
+    win.style.display = '';
+    win.style.opacity = '0';
+    win.style.transform = `translate3d(${win.dataset.posX || 0}px, ${win.dataset.posY || 0}px, 0) scale(0.8)`;
+    requestAnimationFrame(() => {
+      win.style.opacity = '';
+      win.style.transform = `translate3d(${win.dataset.posX || 0}px, ${win.dataset.posY || 0}px, 0)`;
+    });
+  }
+  if (win.classList.contains('minimized')) {
+    win.classList.remove('minimized');
+    win.style.opacity = '';
+    win.style.transform = `translate3d(${win.dataset.posX || 0}px, ${win.dataset.posY || 0}px, 0)`;
+  }
+  bringToFront(win);
+  syncTaskbar();
+  syncSidebarDock();
+});
 
 function setTheme(theme) {
   if (!theme || !theme.tokens) return;
@@ -116,12 +572,10 @@ function setTheme(theme) {
 
 function getSavedTheme() {
   const id = localStorage.getItem('jericho_theme_id');
-  if (!id) return PRESET_THEMES[0];
-  const preset = PRESET_THEMES.find(t => t.id === id);
+  if (!id) return MINIMAL_THEMES[0];
+  const preset = MINIMAL_THEMES.find(t => t.id === id);
   if (preset) return preset;
-  const custom = _customThemes.find(t => t.id === id);
-  if (custom) return custom;
-  return PRESET_THEMES[0];
+  return MINIMAL_THEMES[0];
 }
 
 function loadSavedTheme() {
@@ -133,16 +587,6 @@ function loadSavedTheme() {
   }
 }
 
-async function loadCustomThemes() {
-  try {
-    const data = await apiGet(API_BASE + '/themes');
-    if (Array.isArray(data)) _customThemes = data;
-  } catch (e) {
-    _customThemes = [];
-  }
-  renderThemeLists();
-}
-
 function renderSwatches(tokens) {
   const colors = [tokens.accent, tokens.bg, tokens.surface, tokens.text];
   return colors.map(c => `<div class="theme-swatch" style="background:${c}"></div>`).join('');
@@ -150,134 +594,22 @@ function renderSwatches(tokens) {
 
 function renderThemeLists() {
   const presetGrid = document.getElementById('theme-presets');
-  const customGrid = document.getElementById('theme-custom');
-  const savedId = localStorage.getItem('jericho_theme_id') || 'matrix';
-  if (presetGrid) {
-    presetGrid.innerHTML = PRESET_THEMES.map(t => `
-      <div class="theme-card ${t.id === savedId ? 'active' : ''}" data-theme-id="${t.id}" data-category="preset">
-        <div class="theme-card-name">${escapeHtml(t.name)}</div>
-        <div class="theme-swatches">${renderSwatches(t.tokens)}</div>
-      </div>
-    `).join('');
-  }
-  if (customGrid) {
-    if (_customThemes.length === 0) {
-      customGrid.innerHTML = '<div style="color:var(--text-dim);font-size:12px;padding:8px;">No custom themes yet. Use the AI generator below.</div>';
-    } else {
-      customGrid.innerHTML = _customThemes.map(t => `
-        <div class="theme-card ${t.id === savedId ? 'active' : ''}" data-theme-id="${t.id}" data-category="custom">
+  let savedId = 'paper';
+  try { savedId = localStorage.getItem('jericho_theme_id') || 'paper'; } catch (e) {}
+  try {
+    if (presetGrid) {
+      presetGrid.innerHTML = MINIMAL_THEMES.map(t => `
+        <div class="theme-card ${t.id === savedId ? 'active' : ''}" data-theme-id="${t.id}" data-category="preset">
           <div class="theme-card-name">${escapeHtml(t.name)}</div>
           <div class="theme-swatches">${renderSwatches(t.tokens)}</div>
         </div>
       `).join('');
     }
-  }
-}
-
-function renderThemePreview(theme) {
-  const wrap = document.getElementById('theme-preview-mini');
-  if (!wrap) return;
-  const t = theme.tokens;
-  wrap.innerHTML = `
-    <div class="tp-topbar" style="background:${t.surface};border-color:${t.border};">
-      <span class="tp-logo" style="color:${t.accent};">⬡ Jericho</span>
-      <span class="tp-badge" style="background:${t.accent};color:#000;">b20</span>
-    </div>
-    <div class="tp-cards">
-      <div class="tp-card" style="background:${t.surface};border-color:${t.border};">
-        <h4 style="color:${t.text};">System</h4>
-        <p style="color:${t['text-dim']};">CPU: 12% · RAM: 4.2G</p>
-      </div>
-      <div class="tp-card" style="background:${t.surface};border-color:${t.border};">
-        <h4 style="color:${t.text};">Docker</h4>
-        <p style="color:${t['text-dim']};">8 containers running</p>
-      </div>
-    </div>
-    <div class="tp-bar" style="background:${t.surface};border-color:${t.border};">
-      <span class="tp-dot" style="background:${t.accent};"></span>
-      <span style="color:${t['text-dim']};">Online · YOUR_TAILSCALE_IP</span>
-    </div>
-  `;
-  wrap.style.background = t.bg;
-  wrap.style.borderColor = t.border;
-}
-
-async function generateThemeFromPrompt(prompt) {
-  const statusEl = document.getElementById('theme-gen-status');
-  statusEl.textContent = 'Generating theme via AI...';
-  try {
-    const schemaDesc = JSON.stringify({
-      id: 'string', name: 'string', description: 'string', category: 'ai-generated',
-      tokens: { bg:'#000', surface:'#111', 'surface-2':'#222', accent:'#0f0', 'accent-2':'#0a0', text:'#0f0', 'text-dim':'#080', danger:'#f00', warn:'#fa0', border:'#333', radius:'4px', shadow:'none' },
-      fontFamily: "'JetBrains Mono', monospace",
-      effects: { textShadow:'none', scanlineOpacity:'0', glowIntensity:'0' }
-    });
-    const fewShot = `Example 1: {"id":"sunset","name":"Sunset","description":"Warm oranges and purples","category":"ai-generated","tokens":{"bg":"#1a0a1a","surface":"#2d1b2d","surface-2":"#3d2b3d","accent":"#ff6b35","accent-2":"#9b59b6","text":"#ffd4a3","text-dim":"#c08497","danger":"#e74c3c","warn":"#f39c12","border":"#4a304a","radius":"6px","shadow":"0 0 10px rgba(255,107,53,0.1)"},"fontFamily":"'Inter', sans-serif","effects":{"textShadow":"none","scanlineOpacity":"0","glowIntensity":"0"}}`;
-    const ollamaBody = {
-      model: 'llama3.2',
-      prompt: `You are a UI theme designer. Given a user description, output ONLY valid JSON matching this schema:\n${schemaDesc}\n\n${fewShot}\n\nUser description: "${prompt.replace(/"/g, '\\"')}"\n\nRespond with JSON only. No markdown, no explanation.`,
-      stream: false,
-      format: 'json'
-    };
-    const res = await fetch('http://127.0.0.1:11434/api/generate', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(ollamaBody)
-    });
-    if (!res.ok) throw new Error('Ollama returned ' + res.status);
-    const data = await res.json();
-    const raw = data.response || data.message?.content || '{}';
-    const parsed = JSON.parse(raw);
-    if (!parsed.id) parsed.id = 'ai-' + Date.now();
-    if (!parsed.category) parsed.category = 'ai-generated';
-    return parsed;
+    const customGrid = document.getElementById('theme-custom');
+    if (customGrid) customGrid.innerHTML = '';
   } catch (e) {
-    statusEl.textContent = 'AI failed, using rule-based fallback: ' + e.message;
-    return ruleBasedTheme(prompt);
-  }
-}
-
-function ruleBasedTheme(prompt) {
-  const p = prompt.toLowerCase();
-  const has = (words) => words.some(w => p.includes(w));
-  const id = 'custom-' + Date.now();
-  if (has(['light', 'white', 'day', 'bright'])) {
-    return {
-      id, name: 'Custom Light', description: prompt, category: 'custom',
-      tokens: { bg:'#f8fafc', surface:'#ffffff', 'surface-2':'#e2e8f0', accent:'#2563eb', 'accent-2':'#1d4ed8', text:'#0f172a', 'text-dim':'#64748b', danger:'#dc2626', warn:'#d97706', border:'#cbd5e1', radius:'8px', shadow:'0 2px 8px rgba(0,0,0,0.08)' },
-      fontFamily: "'Inter', 'Segoe UI', system-ui, sans-serif", effects: { textShadow:'none', scanlineOpacity:'0', glowIntensity:'0' }
-    };
-  }
-  if (has(['red', 'crimson', 'blood', 'ruby'])) {
-    return {
-      id, name: 'Custom Red', description: prompt, category: 'custom',
-      tokens: { bg:'#0a0000', surface:'#1a0505', 'surface-2':'#2a0a0a', accent:'#ff3333', 'accent-2':'#cc0000', text:'#ff9999', 'text-dim':'#aa4444', danger:'#ff0000', warn:'#ffaa00', border:'#440000', radius:'4px', shadow:'0 0 10px rgba(255,51,51,0.15)' },
-      fontFamily: "'JetBrains Mono', monospace", effects: { textShadow:'0 0 5px rgba(255,51,51,0.3)', scanlineOpacity:'0.3', glowIntensity:'0.3' }
-    };
-  }
-  if (has(['purple', 'violet', 'lavender', 'magenta'])) {
-    return {
-      id, name: 'Custom Purple', description: prompt, category: 'custom',
-      tokens: { bg:'#0f0518', surface:'#1a0f2e', 'surface-2':'#2a1a40', accent:'#a855f7', 'accent-2':'#7c3aed', text:'#e9d5ff', 'text-dim':'#a78bfa', danger:'#f43f5e', warn:'#fbbf24', border:'#3a1f55', radius:'6px', shadow:'0 0 10px rgba(168,85,247,0.1)' },
-      fontFamily: "'Inter', sans-serif", effects: { textShadow:'0 0 5px rgba(168,85,247,0.2)', scanlineOpacity:'0.15', glowIntensity:'0.2' }
-    };
-  }
-  return {
-    id, name: 'Custom Theme', description: prompt, category: 'custom',
-    tokens: { bg:'#0a0a0a', surface:'#141414', 'surface-2':'#1e1e1e', accent:'#00d4ff', 'accent-2':'#0891b2', text:'#e0f2fe', 'text-dim':'#7dd3fc', danger:'#f87171', warn:'#fbbf24', border:'#262626', radius:'4px', shadow:'0 0 10px rgba(0,212,255,0.1)' },
-    fontFamily: "'JetBrains Mono', monospace", effects: { textShadow:'none', scanlineOpacity:'0', glowIntensity:'0' }
-  };
-}
-
-async function saveThemeToBackend(theme) {
-  try {
-    await apiPost(API_BASE + '/themes', {
-      id: theme.id, name: theme.name, description: theme.description,
-      category: theme.category, tokens: JSON.stringify(theme.tokens),
-      fontFamily: theme.fontFamily, effects: JSON.stringify(theme.effects)
-    });
-  } catch (e) {
-    console.error('Failed to save theme to backend:', e);
+    debugLog('[themes] render error: ' + e.message);
+    if (presetGrid) presetGrid.innerHTML = '<div style="color:var(--danger);padding:8px;">Themes unavailable</div>';
   }
 }
 
@@ -286,24 +618,17 @@ function setupThemePanel() {
   const themeOverlay = document.getElementById('theme-overlay');
   const themeBtn = document.getElementById('nav-theme-btn');
   const themeClose = document.getElementById('theme-overlay-close');
-  const genBtn = document.getElementById('theme-gen-btn');
-  const genInput = document.getElementById('theme-gen-input');
-  const previewWrap = document.getElementById('theme-preview-wrap');
-  const tweakArea = document.getElementById('theme-tweak-area');
-  const tweakBtn = document.getElementById('theme-tweak-btn');
-  const discardBtn = document.getElementById('theme-discard-btn');
-  const applyBtn = document.getElementById('theme-apply-btn');
-  const tweakJson = document.getElementById('theme-tweak-json');
-  const statusEl = document.getElementById('theme-gen-status');
 
   if (!themeBtn || !themeOverlay) return;
+
+  // Render presets immediately so themes are visible even before API call
+  renderThemeLists();
 
   themeBtn.addEventListener('click', () => {
     navOverlay.classList.remove('open');
     navOverlay.setAttribute('aria-hidden', 'true');
     themeOverlay.classList.add('open');
     themeOverlay.setAttribute('aria-hidden', 'false');
-    loadCustomThemes();
   });
 
   themeClose.addEventListener('click', () => {
@@ -315,76 +640,21 @@ function setupThemePanel() {
     const card = e.target.closest('.theme-card');
     if (!card) return;
     const id = card.dataset.themeId;
-    const category = card.dataset.category;
-    let theme;
-    if (category === 'preset') theme = PRESET_THEMES.find(t => t.id === id);
-    else theme = _customThemes.find(t => t.id === id);
+    let theme = MINIMAL_THEMES.find(t => t.id === id);
     if (theme) {
       setTheme(theme);
       renderThemeLists();
-      statusEl.textContent = 'Applied: ' + theme.name;
     }
   });
 
-  genBtn.addEventListener('click', async () => {
-    const prompt = genInput.value.trim();
-    if (!prompt) return;
-    previewWrap.style.display = 'none';
-    tweakArea.classList.remove('open');
-    const theme = await generateThemeFromPrompt(prompt);
-    _candidateTheme = theme;
-    renderThemePreview(theme);
-    previewWrap.style.display = 'block';
-    statusEl.textContent = 'Preview: ' + theme.name;
-  });
-
-  tweakBtn.addEventListener('click', () => {
-    if (!_candidateTheme) return;
-    tweakJson.value = JSON.stringify(_candidateTheme, null, 2);
-    tweakArea.classList.toggle('open');
-  });
-
-  discardBtn.addEventListener('click', () => {
-    _candidateTheme = null;
-    previewWrap.style.display = 'none';
-    tweakArea.classList.remove('open');
-    statusEl.textContent = '';
-  });
-
-  applyBtn.addEventListener('click', async () => {
-    if (!_candidateTheme) return;
-    if (tweakArea.classList.contains('open')) {
-      try {
-        _candidateTheme = JSON.parse(tweakJson.value);
-      } catch (e) {
-        statusEl.textContent = 'Invalid JSON: ' + e.message;
-        return;
-      }
-    }
-    setTheme(_candidateTheme);
-    if (_candidateTheme.category !== 'preset') {
-      await saveThemeToBackend(_candidateTheme);
-      await loadCustomThemes();
-    }
-    previewWrap.style.display = 'none';
-    tweakArea.classList.remove('open');
-    statusEl.textContent = 'Applied and saved: ' + _candidateTheme.name;
-    _candidateTheme = null;
-  });
-
-  document.addEventListener('click', (e) => {
-    if (themeOverlay.classList.contains('open') && !themeOverlay.contains(e.target) && e.target !== themeBtn && !themeBtn.contains(e.target)) {
-      themeOverlay.classList.remove('open');
-      themeOverlay.setAttribute('aria-hidden', 'true');
-    }
-  });
+  // Theme overlay outside-click is handled by unified handleOutsideTap listener below
 }
 
 // ─── Lazy Tab Script Loading ─────────────────────────────────────────────────
 const TAB_SCRIPTS = {
-  'tab-system': ['https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js', 'static/js/system.js?v=20'],
-  'tab-agents': ['static/js/agents.js?v=20'],
-  'tab-terminal': ['static/js/agent-state.js?v=20', 'static/js/terminal.js?v=20', 'static/js/command-assistant.js?v=20'],
+  'tab-system': ['https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js', 'static/js/system.js?v=' + BUILD_ID],
+  'tab-agents': ['static/js/agents.js?v=' + BUILD_ID],
+  'tab-terminal': ['static/js/agent-state.js?v=' + BUILD_ID, 'static/js/terminal.js?v=' + BUILD_ID, 'static/js/command-assistant.js?v=' + BUILD_ID],
   'tab-code': [],
   'tab-notes': [],
   'tab-capture': [],
@@ -410,27 +680,69 @@ function ensureTabScripts(tabId) {
   const scripts = TAB_SCRIPTS[tabId];
   if (!scripts) return;
   if (scripts._loaded) {
+    if (desktopMode) {
+      bridgeInitToWindow(tabId);
+      return;
+    }
     TAB_INIT_FNS[tabId] && TAB_INIT_FNS[tabId]();
     return;
   }
   scripts._loaded = true;
   let pending = scripts.length;
   if (!pending) {
+    if (desktopMode) {
+      bridgeInitToWindow(tabId);
+      return;
+    }
     TAB_INIT_FNS[tabId] && TAB_INIT_FNS[tabId]();
     return;
   }
   scripts.forEach(src => {
     const fullSrc = src.startsWith('http') ? src : (PREFIX ? PREFIX + '/' + src : src);
     if (document.querySelector('script[src="' + fullSrc + '"]')) {
-      if (--pending === 0) TAB_INIT_FNS[tabId] && TAB_INIT_FNS[tabId]();
+      if (--pending === 0) {
+        if (desktopMode) bridgeInitToWindow(tabId);
+        else TAB_INIT_FNS[tabId] && TAB_INIT_FNS[tabId]();
+      }
       return;
     }
     const s = document.createElement('script');
     s.src = fullSrc;
-    s.onload = () => { if (--pending === 0) TAB_INIT_FNS[tabId] && TAB_INIT_FNS[tabId](); };
-    s.onerror = () => { debugLog('[lazy] failed to load ' + fullSrc); if (--pending === 0) TAB_INIT_FNS[tabId] && TAB_INIT_FNS[tabId](); };
+    s.onload = () => {
+      if (--pending === 0) {
+        if (desktopMode) bridgeInitToWindow(tabId);
+        else TAB_INIT_FNS[tabId] && TAB_INIT_FNS[tabId]();
+      }
+    };
+    s.onerror = () => {
+      debugLog('[lazy] failed to load ' + fullSrc);
+      if (--pending === 0) {
+        if (desktopMode) bridgeInitToWindow(tabId);
+        else TAB_INIT_FNS[tabId] && TAB_INIT_FNS[tabId]();
+      }
+    };
     document.head.appendChild(s);
   });
+}
+
+function bridgeInitToWindow(tabId) {
+  const tab = document.getElementById(tabId);
+  const win = document.querySelector('.app-window[data-tab="' + tabId.replace('tab-', '') + '"]');
+  const winContent = win ? win.querySelector('.window-content') : null;
+  if (tab && winContent) {
+    // Temporarily move window content back to hidden panel so init can populate it
+    while (winContent.firstChild) {
+      tab.appendChild(winContent.firstChild);
+    }
+    // Call init (it populates the panel)
+    TAB_INIT_FNS[tabId] && TAB_INIT_FNS[tabId]();
+    // Move populated content back to the visible window
+    while (tab.firstChild) {
+      winContent.appendChild(tab.firstChild);
+    }
+  } else {
+    TAB_INIT_FNS[tabId] && TAB_INIT_FNS[tabId]();
+  }
 }
 
 // ─── Debug Overlay ───────────────────────────────────────────────────────────
@@ -498,8 +810,10 @@ async function handleResponse(res, retryFn) {
     throw new Error(`Rate limited: retry after ${retryAfter}s`);
   }
   if (res.status >= 500) {
-    showToast('Server error. Please retry.', 'error', 4000);
-    throw new Error(`HTTP ${res.status}`);
+    let detail = '';
+    try { const d = await res.json(); detail = d.detail || ''; } catch (e) {}
+    showToast('Server error: ' + (detail || 'Please retry.'), 'error', 4000);
+    throw new Error(`HTTP ${res.status}` + (detail ? ` — ${detail}` : ''));
   }
   if (!res.ok) {
     showToast(`Request failed (${res.status})`, 'error', 4000);
@@ -510,12 +824,23 @@ async function handleResponse(res, retryFn) {
 
 async function apiGet(url) {
   debugLog('[fetch] GET ' + API_BASE + url);
-  const res = await fetch(API_BASE + url, {
-    credentials: 'same-origin',
-    headers: getAuthHeaders(),
-  });
-  await handleResponse(res, () => apiGet(url));
-  return res.json();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  try {
+    const res = await fetch(API_BASE + url, {
+      credentials: 'same-origin',
+      headers: getAuthHeaders(),
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    const result = await handleResponse(res, () => apiGet(url));
+    if (result !== res) return result;
+    return res.json();
+  } catch (e) {
+    clearTimeout(timeout);
+    if (e.name === 'AbortError') throw new Error('Request timed out');
+    throw e;
+  }
 }
 
 async function apiPost(url, body) {
@@ -530,21 +855,33 @@ async function apiPost(url, body) {
     signal: controller.signal,
   });
   clearTimeout(timeout);
-  await handleResponse(res, () => apiPost(url, body));
+  const result = await handleResponse(res, () => apiPost(url, body));
+  if (result !== res) return result;
   return res.json();
 }
 
 async function apiPostForm(url, formData) {
   const headers = { 'Authorization': 'Bearer prototype-bypass' };
   debugLog('[fetch] POST(form) ' + API_BASE + url);
-  const res = await fetch(API_BASE + url, {
-    method: 'POST',
-    credentials: 'same-origin',
-    headers,
-    body: formData,
-  });
-  await handleResponse(res, () => apiPostForm(url, formData));
-  return res.json();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  try {
+    const res = await fetch(API_BASE + url, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers,
+      body: formData,
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    const result = await handleResponse(res, () => apiPostForm(url, formData));
+    if (result !== res) return result;
+    return res.json();
+  } catch (e) {
+    clearTimeout(timeout);
+    if (e.name === 'AbortError') throw new Error('Request timed out');
+    throw e;
+  }
 }
 
 async function tryRefresh() {
@@ -633,6 +970,7 @@ function showDashboard() {
     if (gatekeeper) gatekeeper.classList.remove('active');
     dashboard.classList.add('active');
     closeNavOverlay();
+    initSudoUI();
     // Iframes self-init their own content; parent only handles global pulses
     loadDockerPulse().catch(e => debugLog('[dashboard] docker error: ' + e.message));
     loadTailscalePulse().catch(e => debugLog('[dashboard] tailscale error: ' + e.message));
@@ -654,6 +992,101 @@ function updateCapabilityBadge(tier) {
 
 // ─── Version Changelog ───────────────────────────────────────────────────────
 const JERICHO_CHANGELOG = [
+  {
+    version: 'Build 34', tag: '0.10.0', date: '2026-05-22',
+    changes: [
+      'Build 34: Changelog versioning fix — each build now shows unique Build N title',
+    ]
+  },
+  {
+    version: 'Build 33', tag: '0.10.0', date: '2026-05-22',
+    changes: [
+      'Build 33: Menu overlay polish — renamed Projects to File Browser',
+      'Build 33: Inline changelog renderer — works even if cached JS is stale',
+      'Build 33: Tap-outside-to-close menu overlay with touchstart support',
+    ]
+  },
+  {
+    version: 'Build 32', tag: '0.10.0', date: '2026-05-22',
+    changes: [
+      'Build 32: Mermaid diagram support in markdown file previews',
+      'Build 32: Lazy CDN load with graceful fallback to raw source',
+    ]
+  },
+  {
+    version: 'Build 31', tag: '0.10.0', date: '2026-05-22',
+    changes: [
+      'Build 31: Rich file preview — markdown, syntax highlighting, CSV, logs, JSON',
+      'Build 31: Inline zero-dependency renderers in HTML head',
+      'Build 31: Mobile-friendly preview modal with 44px touch targets',
+    ]
+  },
+  {
+    version: 'Build 30', tag: '0.10.0', date: '2026-05-21',
+    changes: [
+      'Build 30: File preview on mobile — Preview & Download buttons on inline cards',
+      'Build 30: Inline preview handler bypassing cached JS',
+    ]
+  },
+  {
+    version: 'Build 29', tag: '0.10.0', date: '2026-05-21',
+    changes: [
+      'Build 29: Strategic SW + inline fetch — network-only service worker registers first',
+      'Build 29: Inline critical CSS and diagnostic fetch script',
+      'Build 29: Manifest start_url tied to build version for PWA cache busting',
+    ]
+  },
+  {
+    version: 'Build 28', tag: '0.10.0', date: '2026-05-20',
+    changes: [
+      'Build 28: Health restoration — started monitor, agentd, shell, terminal-bridge',
+      'Build 28: Removed nginx port 9010 block, updated shell systemd unit',
+    ]
+  },
+  {
+    version: 'Build 27', tag: '0.10.0', date: '2026-05-20',
+    changes: [
+      'Build 27: Nuclear cache break — per-build SW_BUILD sessionStorage key',
+      'Build 27: Clear-Site-Data header, unconditional SW unregister + IndexedDB purge',
+    ]
+  },
+  {
+    version: 'Build 26', tag: '0.10.0', date: '2026-05-20',
+    changes: [
+      'Build 26: File browser fetch hardening — cache: no-store, 8s mobile timeout',
+      'Build 26: Red error box with retry, CORS mode',
+    ]
+  },
+  {
+    version: 'Build 25', tag: '0.10.0', date: '2026-05-19',
+    changes: [
+      'Build 25: Full mobile UX overhaul — visible card backgrounds, local xterm.js',
+      'Build 25: Connection status dot, changelog inline render, nginx no-cache headers',
+    ]
+  },
+  {
+    version: 'Build 24', tag: '0.10.0', date: '2026-05-19',
+    changes: [
+      'Build 24: Terminal-bridge secret fix, error boundaries, BUILD_ID bump',
+      'Build 24.1: Fixed hardcoded build numbers in index.html and jericho.js',
+    ]
+  },
+  {
+    version: 'Build 23', tag: '0.10.0', date: '2026-05-19',
+    changes: [
+      'Build 23: Rebuilt container with cache buster fixes',
+      'Build 23: TAB_SCRIPTS?v=BUILD_ID, handleResponse retry bug fix',
+    ]
+  },
+  {
+    version: 'Build 22', tag: '0.10.0', date: '2026-05-19',
+    changes: [
+      'Build 22: Secure sudo execution pipeline — mobile sudo via 2-min tickets',
+      'Build 22: Sudo command allowlist with pattern matching + audit trail',
+      'Build 22: File browser cache fix — removed executionContexts reload race',
+      'Build 22: Shell microservice with sudo endpoints on port 9004',
+    ]
+  },
   {
     version: '0.10.0', tag: 'dev', date: '2026-05-19',
     changes: [
@@ -720,19 +1153,33 @@ const JERICHO_CHANGELOG = [
 function renderChangelog() {
   const container = document.getElementById('nav-changelog');
   if (!container) return;
-  container.innerHTML = JERICHO_CHANGELOG.map(entry => {
-    const changes = entry.changes.map(c => `<li>${escapeHtml(c)}</li>`).join('');
-    return `
-      <div class="changelog-entry">
-        <div class="ch-version">
-          <span>${escapeHtml(entry.version)}</span>
-          <span class="dev-tag" style="font-size:9px;padding:1px 6px;">${escapeHtml(entry.tag)}</span>
+  // Skip if inline renderer in index.html already rendered the changelog
+  if (container.dataset.inlineRendered) {
+    debugLog('[changelog] skipping render — inline version already present');
+    return;
+  }
+  if (!JERICHO_CHANGELOG || !JERICHO_CHANGELOG.length) {
+    container.innerHTML = '<div style="color:var(--text-dim);font-size:12px;padding:8px;">No changelog entries.</div>';
+    return;
+  }
+  try {
+    container.innerHTML = JERICHO_CHANGELOG.map(entry => {
+      const changes = entry.changes.map(c => `<li>${escapeHtml(c)}</li>`).join('');
+      return `
+        <div class="changelog-entry">
+          <div class="ch-version">
+            <span>${escapeHtml(entry.version)}</span>
+            <span class="dev-tag" style="font-size:9px;padding:1px 6px;">${escapeHtml(entry.tag)}</span>
+          </div>
+          <div class="ch-date">${escapeHtml(entry.date)}</div>
+          <ul>${changes}</ul>
         </div>
-        <div class="ch-date">${escapeHtml(entry.date)}</div>
-        <ul>${changes}</ul>
-      </div>
-    `;
-  }).join('');
+      `;
+    }).join('');
+  } catch (e) {
+    container.innerHTML = '<div style="color:var(--danger);padding:8px;">Changelog unavailable</div>';
+    debugLog('[changelog] render error: ' + e.message);
+  }
 }
 
 function toggleChangelog() {
@@ -855,6 +1302,18 @@ document.querySelectorAll('.nav-tab').forEach(btn => {
   });
 });
 
+// Changelog "more" link — opens full changelog tab (hidden from nav overlay)
+document.addEventListener('click', (e) => {
+  const moreLink = e.target.closest('.changelog-more');
+  if (!moreLink) return;
+  e.preventDefault();
+  closeNavOverlay();
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  const changelogPanel = document.getElementById('tab-changelog');
+  if (changelogPanel) changelogPanel.classList.add('active');
+  document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
+});
+
 // Overlay trigger & close handlers
 (function initNavOverlay() {
   const menuBtn = document.getElementById('nav-menu-btn');
@@ -869,6 +1328,10 @@ document.querySelectorAll('.nav-tab').forEach(btn => {
   if (fsBtn) fsBtn.addEventListener('click', toggleFullscreen);
   if (desktopCheck) {
     desktopCheck.addEventListener('change', (e) => setDesktopMode(e.target.checked));
+  }
+  const windowCheck = document.getElementById('window-mode-check');
+  if (windowCheck) {
+    windowCheck.addEventListener('change', (e) => toggleDesktopMode(e.target.checked));
   }
   if (logoutBtn) logoutBtn.addEventListener('click', logout);
   // Debug & preview listeners
@@ -886,7 +1349,7 @@ document.querySelectorAll('.nav-tab').forEach(btn => {
   const fbUploadInput = document.getElementById('fb-upload-input');
   const fbMkdir = document.getElementById('fb-mkdir');
   if (fbParent) fbParent.addEventListener('click', navigateParent);
-  if (fbRefresh) fbRefresh.addEventListener('click', loadProjects);
+  if (fbRefresh) fbRefresh.addEventListener('click', () => loadFileBrowser(currentBrowsePath));
   if (fbScrollTop) fbScrollTop.addEventListener('click', scrollFileBrowserTop);
   if (fbUploadBtn && fbUploadInput) {
     fbUploadBtn.addEventListener('click', () => fbUploadInput.click());
@@ -903,15 +1366,29 @@ window.addEventListener('resize', () => {
   applyDesktopMode(getDesktopMode());
 });
 
-// Close overlay on outside click
-document.addEventListener('click', (e) => {
-  const overlay = document.getElementById('nav-overlay');
-  const btn = document.getElementById('nav-menu-btn');
-  if (!overlay || !overlay.classList.contains('open')) return;
-  if (!overlay.contains(e.target) && e.target !== btn && !btn.contains(e.target)) {
-    closeNavOverlay();
+// Close overlays on outside tap/click
+function handleOutsideTap(e) {
+  const navOverlay = document.getElementById('nav-overlay');
+  const navBtn = document.getElementById('nav-menu-btn');
+  const themeOverlay = document.getElementById('theme-overlay');
+  const themeBtn = document.getElementById('nav-theme-btn');
+
+  if (navOverlay && navOverlay.classList.contains('open')) {
+    if (!navOverlay.contains(e.target) && e.target !== navBtn && !navBtn.contains(e.target)) {
+      closeNavOverlay();
+    }
   }
-});
+
+  if (themeOverlay && themeOverlay.classList.contains('open')) {
+    if (!themeOverlay.contains(e.target) && e.target !== themeBtn && !themeBtn.contains(e.target)) {
+      themeOverlay.classList.remove('open');
+      themeOverlay.setAttribute('aria-hidden', 'true');
+    }
+  }
+}
+
+document.addEventListener('click', handleOutsideTap);
+document.addEventListener('touchstart', handleOutsideTap, { passive: true });
 
 // File browser event delegation
 document.addEventListener('click', (e) => {
@@ -928,7 +1405,7 @@ document.addEventListener('click', (e) => {
   }
   const retryBtn = e.target.closest('.fb-retry');
   if (retryBtn) {
-    loadProjects();
+    loadFileBrowser(currentBrowsePath);
     return;
   }
 });
@@ -942,67 +1419,72 @@ document.addEventListener('keydown', (e) => {
 let currentBrowsePath = '/srv';
 let fbScrollPositions = {};
 
-async function loadProjects() {
-  await loadFileBrowser(currentBrowsePath);
-}
+let _fbLoading = false;
 
 async function loadFileBrowser(path, attempt = 1, silent = false) {
   const grid = document.getElementById('projects-grid');
   const pathEl = document.getElementById('fb-path');
   const parentBtn = document.getElementById('fb-parent');
-  if (!grid) { debugLog('[filebrowser] grid element not found'); return; }
+  if (!grid) { console.error('[filebrowser] grid element not found'); return; }
+  if (_fbLoading) { console.log('[filebrowser] already loading, skipping'); return; }
+  _fbLoading = true;
   if (!silent) {
-    const dots = '.'.repeat(attempt);
-    grid.innerHTML = '<p id="fb-loading" style="color:var(--text-dim);padding:20px;text-align:center;"><span class="spinner">⟳</span> Loading files' + dots + '</p>';
+    grid.innerHTML = '<div class="fb-loading"><span class="fb-spinner">⟳</span> Loading files...</div>';
   }
   try {
-    debugLog('[filebrowser] fetching ' + path + ' (attempt ' + attempt + ')');
+    console.log('[filebrowser] fetching ' + path + ' (attempt ' + attempt + ')');
+    const isMobile = window.innerWidth < 768 || navigator.maxTouchPoints > 0;
+    const timeoutMs = isMobile ? 8000 : (attempt === 1 ? 15000 : 10000);
     const controller = new AbortController();
-    const timeoutMs = attempt === 1 ? 30000 : 15000;
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     const res = await fetch(API_BASE + '/projects?path=' + encodeURIComponent(path), {
       credentials: 'same-origin',
+      mode: 'cors',
+      cache: 'no-store',
       headers: getAuthHeaders(),
       signal: controller.signal,
     });
     clearTimeout(timeout);
-    debugLog('[filebrowser] status ' + res.status);
+    console.log('[filebrowser] status ' + res.status);
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
+    if (!data || !Array.isArray(data.entries)) {
+      throw new Error('Invalid server response: missing entries array');
+    }
     currentBrowsePath = data.path;
     if (pathEl) pathEl.textContent = data.path;
     if (parentBtn) parentBtn.style.display = data.parent ? 'inline-block' : 'none';
-    debugLog('[filebrowser] received ' + (data.entries ? data.entries.length : 0) + ' entries');
-    if (!data.entries || !data.entries.length) {
-      grid.innerHTML = '<p style="color:var(--text-dim);padding:20px;text-align:center;">Empty directory</p>';
+    console.log('[filebrowser] received ' + data.entries.length + ' entries');
+    if (!data.entries.length) {
+      grid.innerHTML = '<div class="fb-empty">Empty directory</div>';
+      _fbLoading = false;
       return;
     }
     grid.innerHTML = data.entries.map(e => {
       if (e.type === 'directory') {
         return `
-          <div class="card fb-dir" data-navigate="${escapeHtml(e.path)}" style="min-height:80px;display:flex;flex-direction:column;justify-content:center;cursor:pointer;">
-            <div style="font-size:1.5rem;margin-bottom:4px;">📁</div>
-            <div style="font-weight:600;font-size:0.95rem;word-break:break-word;">${escapeHtml(e.name)}</div>
-            <div style="color:var(--text-dim);font-size:0.75rem;">folder</div>
+          <div class="card fb-dir" data-navigate="${escapeHtml(e.path)}">
+            <div class="fb-icon">📁</div>
+            <div class="fb-name">${escapeHtml(e.name)}</div>
+            <div class="fb-meta">folder</div>
           </div>
         `;
       } else {
         const size = formatBytes(e.size || 0);
         return `
-          <div class="card fb-file" style="cursor:default;min-height:80px;display:flex;flex-direction:column;justify-content:center;">
-            <div style="font-size:1.5rem;margin-bottom:4px;">📄</div>
-            <div style="font-weight:600;font-size:0.95rem;word-break:break-word;">${escapeHtml(e.name)}</div>
-            <div style="color:var(--text-dim);font-size:0.75rem;">${size}</div>
-            <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">
+          <div class="card fb-file">
+            <div class="fb-icon">📄</div>
+            <div class="fb-name">${escapeHtml(e.name)}</div>
+            <div class="fb-meta">${size}</div>
+            <div class="fb-actions">
               <button class="btn-small fb-preview" data-preview="${encodeURIComponent(e.path)}">👁 Preview</button>
-              <a href="/api/web/download?path=${encodeURIComponent(e.path)}" target="_blank" class="btn-small" style="text-decoration:none;">⬇ Download</a>
+              <a href="${PREFIX}/api/web/download?path=${encodeURIComponent(e.path)}" target="_blank" class="btn-small" style="text-decoration:none;">⬇ Download</a>
             </div>
           </div>
         `;
       }
     }).join('');
     _fbLastEntriesHash = getFbEntriesHash(data);
-    // Restore scroll position if returning to a previously visited directory
     const scrollArea = document.getElementById('fb-scroll-area');
     if (scrollArea) {
       const saved = fbScrollPositions[data.path];
@@ -1013,13 +1495,23 @@ async function loadFileBrowser(path, attempt = 1, silent = false) {
       }
     }
   } catch (e) {
-    if (e.name === 'AbortError' && attempt < 3) {
-      debugLog('[filebrowser] timeout on attempt ' + attempt + ', retrying in ' + (attempt * 1000) + 'ms');
-      setTimeout(() => loadFileBrowser(path, attempt + 1), attempt * 1000);
+    console.error('[filebrowser] error on attempt ' + attempt + ':', e.name, e.message);
+    if (e.name === 'AbortError' && attempt < 2) {
+      console.log('[filebrowser] timeout, retrying...');
+      setTimeout(() => loadFileBrowser(path, attempt + 1, silent), 500);
       return;
     }
-    debugLog('[filebrowser] error: ' + e.message);
-    grid.innerHTML = '<p style="color:var(--danger);padding:20px;text-align:center;">Failed to load files: ' + escapeHtml(e.message) + '<br><button class="btn-small fb-retry" style="margin-top:12px;">Retry</button></p>';
+    grid.innerHTML = `
+      <div class="fb-error">
+        <div style="font-size:1.2rem;margin-bottom:6px;">⚠️ Could not load folders</div>
+        <div style="font-size:0.85rem;opacity:0.9;margin-bottom:12px;">${escapeHtml(e.message || 'Network error')}</div>
+        <button class="btn-small fb-retry" style="font-size:14px;padding:10px 18px;min-height:44px;">🔄 Tap to retry</button>
+      </div>
+    `;
+    const retryBtn = grid.querySelector('.fb-retry');
+    if (retryBtn) retryBtn.addEventListener('click', () => loadFileBrowser(path));
+  } finally {
+    _fbLoading = false;
   }
 }
 
@@ -1146,8 +1638,22 @@ async function previewFile(path) {
   try {
     const data = await apiGet('/preview?path=' + path);
     title.textContent = data.name;
+    const R = window._jerichoRenderers;
+    const lang = data.language || (R ? R.getLang(data.name || '') : '');
     if (data.type === 'image') {
       body.innerHTML = '<img src="' + escapeHtml(data.content) + '" style="max-width:100%;border-radius:4px;display:block;margin:0 auto;">';
+    } else if (R && data.type === 'markdown') {
+      body.innerHTML = R.markdown(data.content || '');
+      R.renderMermaidBlocks(body);
+    } else if (R && data.type === 'json') {
+      body.innerHTML = R.jsonTree(data.content || '');
+    } else if (R && lang === 'csv') {
+      body.innerHTML = R.csv(data.content || '');
+    } else if (R && lang === 'log') {
+      body.innerHTML = R.logs(data.content || '');
+    } else if (R && (data.type === 'code' || data.type === 'text')) {
+      const code = R.highlight(data.content || '', lang);
+      body.innerHTML = '<pre style="background:#0d1117;border:1px solid #333;border-radius:8px;padding:12px;overflow-x:auto;"><code>' + code + '</code></pre>';
     } else if (data.type === 'markdown') {
       body.innerHTML = '<pre style="white-space:pre-wrap;word-break:break-word;font-family:monospace;font-size:0.85rem;line-height:1.5;color:var(--text);">' + escapeHtml(data.content) + '</pre>';
     } else if (data.type === 'json') {

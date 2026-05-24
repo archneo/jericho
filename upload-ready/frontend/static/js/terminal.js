@@ -1,7 +1,10 @@
 // terminal.js — xterm.js WebSocket terminal for Jericho
 // Loads xterm.js from CDN
 
-const XTERM_CDN = 'https://cdn.jsdelivr.net/npm/xterm@5.5.0/lib/xterm.min.js';
+const XTERM_LOCAL = (typeof PREFIX !== 'undefined' ? PREFIX : '') + '/static/vendor/xterm/xterm.min.js';
+const FIT_ADDON_LOCAL = (typeof PREFIX !== 'undefined' ? PREFIX : '') + '/static/vendor/xterm/xterm-addon-fit.min.js';
+const WEBLINKS_LOCAL = (typeof PREFIX !== 'undefined' ? PREFIX : '') + '/static/vendor/xterm/xterm-addon-web-links.min.js';
+const XTERM_CDN = 'https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js';
 const FIT_ADDON_CDN = 'https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js';
 const WEBLINKS_CDN = 'https://cdn.jsdelivr.net/npm/xterm-addon-web-links@0.9.0/lib/xterm-addon-web-links.min.js';
 
@@ -18,12 +21,20 @@ class TerminalManager {
     this.lastHeartbeat = 0;
     this.stickyMod = null;
     this.pendingInput = [];
+    this._beforeUnloadHandler = null;
   }
 
   async init() {
-    await this.loadScript(XTERM_CDN);
-    await this.loadScript(FIT_ADDON_CDN);
-    await this.loadScript(WEBLINKS_CDN);
+    try {
+      await this.loadScript(XTERM_LOCAL);
+      await this.loadScript(FIT_ADDON_LOCAL);
+      await this.loadScript(WEBLINKS_LOCAL);
+    } catch (e) {
+      console.log('[terminal] local xterm failed, falling back to CDN');
+      await this.loadScript(XTERM_CDN);
+      await this.loadScript(FIT_ADDON_CDN);
+      await this.loadScript(WEBLINKS_CDN);
+    }
 
     this.term = new Terminal({
       cursorBlink: true,
@@ -177,6 +188,12 @@ class TerminalManager {
         while (this.pendingInput.length && this.ws.readyState === WebSocket.OPEN) {
           this.ws.send(new TextEncoder().encode(this.pendingInput.shift()));
         }
+        // Protect against accidental page close/refresh while terminal is active
+        this._beforeUnloadHandler = (e) => {
+          e.preventDefault();
+          e.returnValue = 'Terminal session is active. Leave anyway?';
+        };
+        window.addEventListener('beforeunload', this._beforeUnloadHandler);
       };
 
       this.ws.onmessage = (event) => {
@@ -211,6 +228,10 @@ class TerminalManager {
         btn.disabled = false;
         status.textContent = 'Disconnected';
         status.className = 'disconnected';
+        if (this._beforeUnloadHandler) {
+          window.removeEventListener('beforeunload', this._beforeUnloadHandler);
+          this._beforeUnloadHandler = null;
+        }
         if (e.code !== 1000 && e.code !== 1001) {
           this.scheduleReconnect(opts);
         }
@@ -241,6 +262,10 @@ class TerminalManager {
       this.ws = null;
     }
     this.connected = false;
+    if (this._beforeUnloadHandler) {
+      window.removeEventListener('beforeunload', this._beforeUnloadHandler);
+      this._beforeUnloadHandler = null;
+    }
     document.getElementById('terminal-connect').textContent = 'Connect';
     document.getElementById('terminal-status').textContent = 'Disconnected';
     document.getElementById('terminal-status').className = 'disconnected';
@@ -350,13 +375,13 @@ class TerminalManager {
     const container = document.getElementById('kb-commands');
     if (!container) return;
     const chips = [];
-    const order = ['system', 'docker', 'git', 'network', 'dangerous'];
+    const order = ['system', 'docker', 'git', 'network', 'sudo', 'dangerous'];
     for (const cat of order) {
       const cmds = categories[cat];
       if (!cmds) continue;
       for (const cmd of cmds) {
         chips.push(`
-          <button class="cmd-chip ${cmd.dangerous ? 'dangerous' : ''}" data-cmd="${escapeHtml(cmd.command)}" data-danger="${cmd.dangerous}" title="${escapeHtml(cmd.description)}">
+          <button class="cmd-chip ${cmd.dangerous ? 'dangerous' : ''} ${cmd.sudo ? 'sudo' : ''}" data-cmd="${escapeHtml(cmd.command)}" data-danger="${cmd.dangerous}" data-sudo="${cmd.sudo || false}" title="${escapeHtml(cmd.description)}">
             <span class="chip-icon">${cmd.icon || '▶'}</span>
             <span class="chip-label">${escapeHtml(cmd.id)}</span>
           </button>
@@ -374,7 +399,10 @@ class TerminalManager {
       chip.addEventListener('click', (e) => {
         const cmd = chip.dataset.cmd;
         const dangerous = chip.dataset.danger === 'true';
-        if (dangerous) {
+        const isSudo = chip.dataset.sudo === 'true';
+        if (isSudo) {
+          executeSudoCommand(cmd, chip.title);
+        } else if (dangerous) {
           this.showConfirmDialog(cmd, () => this.executeCommand(cmd));
         } else {
           this.executeCommand(cmd);

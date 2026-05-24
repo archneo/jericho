@@ -10,7 +10,7 @@ from fastapi import Request, HTTPException
 
 DATA_DIR = Path("/data")
 DB_PATH = DATA_DIR / "jericho.db"
-SECRET_KEY = os.environ.get("JERICHO_SECRET_KEY", "dev-secret-change-me")
+SECRET_KEY = os.environ.get("JERICHO_SECRET_KEY", "SET_VIA_ENV_JERICHO_SECRET_KEY")
 ALGORITHM = "HS256"
 ACCESS_TTL = timedelta(minutes=15)
 REFRESH_TTL = timedelta(days=7)
@@ -142,6 +142,21 @@ def mint_terminal_ticket(user_id: str, client_type: str, tier: str, attested: bo
         "iat": now,
         "exp": now + timedelta(minutes=5),
         "type": "ticket",
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+
+SUDO_TTL = timedelta(minutes=2)
+
+def mint_sudo_ticket(user_id: str) -> str:
+    now = datetime.now(timezone.utc)
+    jti = secrets.token_urlsafe(16)
+    payload = {
+        "sub": user_id,
+        "jti": jti,
+        "iat": now,
+        "exp": now + SUDO_TTL,
+        "type": "sudo",
     }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 

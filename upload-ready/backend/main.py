@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import re
@@ -67,6 +68,18 @@ COMMAND_REGISTRY = {
         {"id": "git_status", "command": "git status", "description": "Git status", "icon": "🌿", "dangerous": False},
         {"id": "git_log", "command": "git log --oneline -10", "description": "Recent commits", "icon": "📜", "dangerous": False},
         {"id": "git_branch", "command": "git branch -a", "description": "All branches", "icon": "🌲", "dangerous": False},
+    ],
+    "sudo": [
+        {"id": "nginx_reload", "command": "sudo nginx -s reload", "description": "Reload Nginx config", "icon": "🔄", "dangerous": True, "sudo": True},
+        {"id": "nginx_test", "command": "sudo nginx -t", "description": "Test Nginx config", "icon": "✅", "dangerous": False, "sudo": True},
+        {"id": "systemctl_restart_nginx", "command": "sudo systemctl restart nginx", "description": "Restart Nginx service", "icon": "🔄", "dangerous": True, "sudo": True},
+        {"id": "systemctl_status", "command": "sudo systemctl status nginx", "description": "Check Nginx service status", "icon": "📊", "dangerous": False, "sudo": True},
+        {"id": "docker_compose_up", "command": "sudo docker compose up -d", "description": "Start Docker Compose", "icon": "🐳", "dangerous": False, "sudo": True},
+        {"id": "docker_compose_restart", "command": "sudo docker compose restart", "description": "Restart Docker Compose", "icon": "🔄", "dangerous": True, "sudo": True},
+        {"id": "pacman_update", "command": "sudo pacman -Syu --noconfirm", "description": "Update system packages", "icon": "📦", "dangerous": True, "sudo": True},
+        {"id": "tailscale_up", "command": "sudo tailscale up", "description": "Start Tailscale", "icon": "🔗", "dangerous": False, "sudo": True},
+        {"id": "ufw_status", "command": "sudo ufw status", "description": "Check UFW firewall status", "icon": "🔥", "dangerous": False, "sudo": True},
+        {"id": "ss_listening", "command": "sudo ss -tlnp", "description": "List listening ports", "icon": "🔌", "dangerous": False, "sudo": True},
     ],
     "dangerous": [
         {"id": "reboot", "command": "sudo reboot", "description": "Reboot server", "icon": "🔴", "dangerous": True},
@@ -203,7 +216,7 @@ def audit(event: str, ip: str, detail: str = ""):
 
 # ─── Sub-versioning & Auto-log ────────────────────────────────────────────────
 JERICHO_VERSION = "0.10.0"
-JERICHO_BUILD = "21"
+JERICHO_BUILD = "39"
 CHANGELOG_PATH = DATA_DIR / "changelog.log"
 
 def log_version_change():
@@ -287,9 +300,30 @@ app = FastAPI(title="Jericho Command Center", lifespan=lifespan)
 app.mount("/static", CachedStaticFiles(directory="/app/static"), name="static")
 
 # CORS: only allow web origins for /api/web/*; native endpoints handled separately
+def _is_allowed_origin(origin: str) -> bool:
+    if not origin:
+        return True
+    if origin.startswith("http://localhost") or origin.startswith("http://127.0.0.1"):
+        return True
+    if ".trilokventures.org" in origin:
+        return True
+    # Allow Tailscale CGNAT range 100.64.0.0/10
+    try:
+        from urllib.parse import urlparse
+        host = urlparse(origin).hostname
+        if host and host.startswith("100."):
+            parts = host.split(".")
+            if len(parts) == 4:
+                second = int(parts[1])
+                if 64 <= second <= 127:
+                    return True
+    except Exception:
+        pass
+    return False
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://YOUR_DOMAIN"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -330,10 +364,10 @@ async def index(request: Request):
     import re
     html = re.sub(r'\?v=\d+', '?b=' + bust, html)
     headers = {
-        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Cache-Control": "no-cache, no-store, must-revalidate, proxy-revalidate",
         "Pragma": "no-cache",
         "Expires": "0",
-        "Clear-Site-Data": '"cookies", "storage", "executionContexts"',
+        "Clear-Site-Data": '"cookies", "storage"',
     }
     return HTMLResponse(content=html, headers=headers)
 
@@ -645,9 +679,21 @@ async def preview_file(request: Request, path: str):
                     "code" if name.endswith(text_exts) else "text"
                 )
             )
+            language = {
+                ".py": "python", ".js": "javascript", ".ts": "typescript",
+                ".sh": "bash", ".go": "go", ".rs": "rust", ".java": "java",
+                ".c": "c", ".cpp": "cpp", ".h": "c", ".hpp": "cpp",
+                ".php": "php", ".rb": "ruby", ".sql": "sql",
+                ".html": "html", ".css": "css", ".scss": "scss",
+                ".yaml": "yaml", ".yml": "yaml", ".json": "json",
+                ".xml": "xml", ".nginx": "nginx", ".conf": "ini",
+                ".dockerfile": "dockerfile", ".md": "markdown",
+                ".log": "log", ".csv": "csv", ".txt": "text",
+            }.get(Path(name).suffix, "")
             return {
                 "name": target.name,
                 "type": ftype,
+                "language": language,
                 "size": size,
                 "content": content,
                 "truncated": size > MAX_PREVIEW,
@@ -979,7 +1025,7 @@ async def upload(request: Request, file: UploadFile = File(...), folder: str = "
 
 
 # ─── Kimi Sessions ────────────────────────────────────────────────────────────
-HOST_BRIDGE = os.environ.get("HOST_BRIDGE_URL", "YOUR_HOST_BRIDGE_URL")
+HOST_BRIDGE = os.environ.get("HOST_BRIDGE_URL", "http://127.0.0.1:9998")
 
 @app.get("/api/web/kimi/sessions")
 async def kimi_sessions(request: Request):
@@ -1276,6 +1322,122 @@ SHORTCUTS = {
 async def list_shortcuts(request: Request):
     require_auth(request)
     return {"shortcuts": SHORTCUTS}
+
+
+# ─── Sudo Pipeline ────────────────────────────────────────────────────────────
+class SudoTicketRequest(BaseModel):
+    passphrase: str
+    totp: str
+
+
+_sudo_rate_limiters = {}
+
+
+def _sudo_rate_limit(key: str) -> bool:
+    bucket = get_rate_limiter(f"sudo:{key}", rate=5/60, burst=5)
+    return bucket.allow()
+
+
+def _proxy_shell(path: str, method: str = "POST", headers: dict = None, data: bytes = None) -> dict:
+    """Synchronous proxy to shell microservice."""
+    import urllib.request
+    url = f"http://127.0.0.1:9004{path}"
+    req = urllib.request.Request(url, method=method, data=data, headers=headers or {}, unverifiable=True)
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8")
+        try:
+            detail = json.loads(body).get("detail", body)
+        except Exception:
+            detail = body
+        raise HTTPException(status_code=e.code, detail=detail)
+
+
+@app.post("/api/web/tickets/sudo")
+async def mint_sudo_ticket_endpoint(request: Request, body: SudoTicketRequest):
+    user = require_auth(request)
+    ip = request.client.host if request.client else "unknown"
+
+    # Rate limit sudo ticket requests
+    user_id = user.get("sub", "unknown")
+    if not _sudo_rate_limit(user_id):
+        raise HTTPException(status_code=429, detail="Too many sudo ticket requests")
+
+    # Validate passphrase + TOTP
+    if PASSPHRASE_HASH and not verify_passphrase(body.passphrase, PASSPHRASE_HASH):
+        audit("sudo_ticket_fail_passphrase", ip, f"user={user_id}")
+        raise HTTPException(status_code=401, detail="Invalid passphrase")
+    if TOTP_SECRET and not verify_totp(body.totp, TOTP_SECRET):
+        audit("sudo_ticket_fail_totp", ip, f"user={user_id}")
+        raise HTTPException(status_code=401, detail="Invalid TOTP")
+
+    from auth_jwt import mint_sudo_ticket
+    ticket = mint_sudo_ticket(user_id)
+    audit("sudo_ticket_minted", ip, f"user={user_id}")
+    return {
+        "ok": True,
+        "ticket": ticket,
+        "expires_in_seconds": 120,
+        "duration_seconds": 120,
+    }
+
+
+@app.post("/api/web/sudo/validate")
+async def sudo_validate_proxy(request: Request):
+    require_auth(request)
+    body = await request.json()
+    auth_header = request.headers.get("Authorization", "")
+    headers = {"Authorization": auth_header, "Content-Type": "application/json"}
+    result = await asyncio.to_thread(_proxy_shell, "/sudo/validate", "POST", headers, json.dumps(body).encode())
+    return result
+
+
+@app.post("/api/web/sudo/exec")
+async def sudo_exec_proxy(request: Request):
+    user = require_auth(request)
+    ip = request.client.host if request.client else "unknown"
+    user_id = user.get("sub", "unknown")
+
+    # Rate limit sudo executions
+    bucket = get_rate_limiter(f"sudo_exec:{user_id}", rate=3/60, burst=3)
+    if not bucket.allow():
+        raise HTTPException(status_code=429, detail="Too many sudo executions")
+
+    body = await request.json()
+    ticket = request.headers.get("X-Sudo-Ticket", "")
+    if not ticket:
+        raise HTTPException(status_code=401, detail="Missing sudo ticket")
+
+    auth_header = request.headers.get("Authorization", "")
+    headers = {
+        "Authorization": auth_header,
+        "Content-Type": "application/json",
+        "X-Sudo-Ticket": ticket,
+    }
+    result = await asyncio.to_thread(_proxy_shell, "/sudo/exec", "POST", headers, json.dumps(body).encode())
+    audit("sudo_exec", ip, f"user={user_id} cmd={body.get('command','')}")
+    return result
+
+
+@app.get("/api/web/sudo/status")
+async def sudo_status(request: Request):
+    require_auth(request)
+    ticket = request.headers.get("X-Sudo-Ticket", "")
+    if not ticket:
+        return {"active": False, "expires_in_seconds": None}
+    try:
+        from auth_jwt import verify_token
+        payload = verify_token(ticket, expected_type="sudo")
+        from datetime import datetime, timezone
+        exp = payload.get("exp")
+        if exp:
+            expires_in = max(0, int(exp - datetime.now(timezone.utc).timestamp()))
+            return {"active": True, "expires_in_seconds": expires_in}
+    except Exception:
+        pass
+    return {"active": False, "expires_in_seconds": None}
 
 
 @app.post("/api/web/mkdir")

@@ -28,7 +28,8 @@ docker compose up -d --build
 
 ## ✨ Features
 
-- **Projects** — File browser with image preview and markdown rendering
+- **Desktop Window Manager** — Floating app windows with drag, minimize, maximize, close. Switch between tabbed and desktop modes.
+- **File Browser** — Image preview, markdown rendering, syntax highlighting, CSV tables, Mermaid diagrams
 - **Terminal** — Full bash via WebSocket PTY bridge (Go + ttyd)
 - **Code Forge** — VS Code in browser via code-server
 - **Scratchpad** — Auto-saving markdown notes
@@ -36,6 +37,7 @@ docker compose up -d --build
 - **Tailscale Watch** — Mesh peer discovery
 - **Kimi Sessions** — Launch Kimi CLI web UIs on demand
 - **Quick Capture** — Camera upload to `/srv/inbox/`
+- **Themes** — 3 minimal presets: Paper Desktop, Slate Dark, The Construct
 
 ---
 
@@ -46,6 +48,8 @@ docker compose up -d --build
 - Go WebSocket PTY bridge
 - ttyd + code-server (Docker)
 - Nginx reverse proxy
+- CSS Custom Properties design system (PostHog-inspired OS aesthetic)
+- GPU-composited transform-based window dragging
 
 ---
 

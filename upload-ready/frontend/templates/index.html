@@ -1,26 +1,345 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <script>
+    // Register network-only SW FIRST, before any content loads
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('static/sw.js?v=39', {scope: '/'})
+        .then(function(reg){ console.log('[SW] v38 registered', reg.scope); })
+        .catch(function(e){ console.error('[SW] v38 failed', e); });
+    }
+  </script>
+  <script>
+  // Inline rich text renderers — zero dependencies, work even if cached JS never loads
+  (function(){
+    window._jerichoRenderers = {
+      markdown: function(text){
+        var lines = text.split('\n');
+        var out = []; var inCode = false; var codeLang = ''; var codeLines = [];
+        var inList = false; var listType = ''; var inQuote = false;
+        function escapeHtml(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+        function inlineFormat(s){
+          return s
+            .replace(/`([^`]+)`/g, '<code style="background:#0d1117;color:#4db87a;padding:2px 6px;border-radius:4px;font-family:monospace;">$1</code>')
+            .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+            .replace(/__([^_]+)__/g, '<strong>$1</strong>')
+            .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+            .replace(/_([^_]+)_/g, '<em>$1</em>')
+            .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" style="color:#4db87a;text-decoration:underline;">$1</a>');
+        }
+        function flushCode(){
+          if(codeLines.length){
+            var code = codeLines.join('\n');
+            if(codeLang === 'mermaid'){
+              out.push('<div class="mermaid-block" data-mermaid="' + encodeURIComponent(code) + '"><div class="mermaid-loading">⟳ Rendering diagram...</div></div>');
+            } else {
+              if(codeLang) code = window._jerichoRenderers.highlight(code, codeLang);
+              else code = escapeHtml(code);
+              out.push('<pre style="background:#0d1117;border:1px solid #333;border-radius:8px;padding:12px;overflow-x:auto;"><code>'+code+'</code></pre>');
+            }
+            codeLines = []; codeLang = '';
+          }
+        }
+        function flushList(){ if(inList){ out.push('</'+listType+'>'); inList = false; listType = ''; } }
+        function flushQuote(){ if(inQuote){ out.push('</blockquote>'); inQuote = false; } }
+        for(var i = 0; i < lines.length; i++){
+          var line = lines[i];
+          if(line.match(/^```/)){
+            flushList(); flushQuote();
+            if(inCode){ inCode = false; flushCode(); }
+            else { inCode = true; codeLang = line.replace(/^```/,'').trim(); }
+            continue;
+          }
+          if(inCode){ codeLines.push(line); continue; }
+          if(line.match(/^\s*$/)){ flushList(); flushQuote(); out.push('<br>'); continue; }
+          if(line.match(/^#{1,6}\s/)){
+            flushList(); flushQuote();
+            var level = line.match(/^(#+)/)[1].length;
+            out.push('<h'+level+' style="color:#e8f0ec;border-bottom:1px solid #4db87a;padding-bottom:4px;margin-top:16px;font-size:'+(1.6-level*0.15)+'rem;">'+inlineFormat(line.replace(/^#{1,6}\s/,''))+'</h'+level+'>');
+            continue;
+          }
+          if(line.match(/^\s*[-*+]\s/)){
+            flushQuote();
+            if(!inList || listType !== 'ul'){ flushList(); inList = true; listType = 'ul'; out.push('<ul style="padding-left:20px;margin:8px 0;">'); }
+            out.push('<li style="margin:4px 0;">'+inlineFormat(line.replace(/^\s*[-*+]\s/,''))+'</li>');
+            continue;
+          }
+          if(line.match(/^\s*\d+\.\s/)){
+            flushQuote();
+            if(!inList || listType !== 'ol'){ flushList(); inList = true; listType = 'ol'; out.push('<ol style="padding-left:20px;margin:8px 0;">'); }
+            out.push('<li style="margin:4px 0;">'+inlineFormat(line.replace(/^\s*\d+\.\s/,''))+'</li>');
+            continue;
+          }
+          if(line.match(/^\s*>\s/)){
+            flushList();
+            if(!inQuote){ inQuote = true; out.push('<blockquote style="border-left:4px solid #4db87a;margin:8px 0;padding-left:12px;color:#8fa89a;">'); }
+            out.push('<p style="margin:4px 0;">'+inlineFormat(line.replace(/^\s*>\s/,''))+'</p>');
+            continue;
+          }
+          if(line.match(/^\s*\|/)){
+            flushList(); flushQuote();
+            // Simple table row
+            var cells = line.split('|').filter(function(c){ return c.trim() !== ''; });
+            if(cells.length && !cells[0].match(/^[-:]+$/)){
+              var tag = (i > 0 && lines[i-1].match(/^\s*\|[-\s:|]+\|/)) ? 'td' : 'th';
+              var row = cells.map(function(c){ return '<'+tag+' style="border:1px solid #333;padding:6px 8px;'+(tag==='th'?'background:#1a3a28;color:#4db87a;':'')+'">'+inlineFormat(c.trim())+'</'+tag+'>'; }).join('');
+              out.push('<table style="width:100%;border-collapse:collapse;font-size:0.85rem;margin:8px 0;"><tr>'+row+'</tr></table>');
+            }
+            continue;
+          }
+          flushList(); flushQuote();
+          if(line.match(/^\s*---+\s*$/) || line.match(/^\s*\*\*\*+\s*$/) || line.match(/^\s*___+\s*$/)){
+            out.push('<hr style="border:none;border-top:1px solid #333;margin:16px 0;">'); continue;
+          }
+          out.push('<p style="margin:8px 0;line-height:1.6;">'+inlineFormat(line)+'</p>');
+        }
+        flushList(); flushQuote(); flushCode();
+        return '<div class="md-preview">'+out.join('')+'</div>';
+      },
+
+      highlight: function(text, lang){
+        var keywords = 'async await break case catch class const continue debugger default delete do else enum export extends false finally for from function get if import in instanceof interface let new null of package private protected public return set static super switch this throw true try typeof undefined var void while with yield def class pass raise except finally global nonlocal assert lambda print input open range len str int float list dict tuple set bool bytes chr ord abs max min sum round enumerate zip map filter sorted reversed any all hasattr getattr setattr delattr isinstance issubclass type object dir help hex oct bin compile eval exec memoryview slice format vars locals globals repr exit quit self cls super println console log error warn info debug trace require module exports import export default interface type namespace implements declare abstract readonly enum'.split(' ');
+        var builtins = 'console JSON Math Date Array Object String Number Boolean RegExp Error Promise Map Set WeakMap WeakSet Symbol BigInt ArrayBuffer DataView Uint8Array Int8Array Uint16Array Int16Array Uint32Array Int32Array Float32Array Float64Array os sys time datetime pathlib typing collections itertools functools re subprocess threading multiprocessing asyncio aiohttp fastapi uvicorn requests urllib http socket json csv pickle sqlite3 hashlib base64 random secrets string io tempfile shutil gzip zipfile tarfile mimetypes html xml http email uuid datetime decimal fractions statistics typing inspect copy pprint textwrap string re difflib hashlib hmac base64 binascii struct codecs encodings zoneinfo calendar gettext locale pathlib fnmatch glob shutil filecmp tempfile linecache macpath pickle copyjson marshal dbm shelve'.split(' ');
+        var kwRe = new RegExp('\\b(' + keywords.join('|') + ')\\b', 'g');
+        var biRe = new RegExp('\\b(' + builtins.join('|') + ')\\b', 'g');
+        var out = [];
+        var lines = text.split('\n');
+        for(var i = 0; i < lines.length; i++){
+          var line = lines[i];
+          // Comments
+          var comment = '';
+          var cIdx = line.indexOf('//');
+          var hIdx = line.indexOf('#');
+          var sIdx = line.indexOf('/*');
+          var eIdx = line.indexOf('*/');
+          if(cIdx >= 0){ comment = line.slice(cIdx); line = line.slice(0, cIdx); }
+          else if(hIdx >= 0 && !line.slice(0, hIdx).match(/['"`]/)){ comment = line.slice(hIdx); line = line.slice(0, hIdx); }
+          // Escape HTML first
+          line = line.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+          // Strings
+          line = line.replace(/("(?:[^"\\]|\\.)*")/g, '<span class="syn-string">$1</span>');
+          line = line.replace(/('(?:[^'\\]|\\.)*')/g, '<span class="syn-string">$1</span>');
+          line = line.replace(/(`(?:[^`\\]|\\.)*`)/g, '<span class="syn-string">$1</span>');
+          // Functions
+          line = line.replace(/(\w+)(\s*\()/g, '<span class="syn-function">$1</span>$2');
+          // Keywords
+          line = line.replace(kwRe, '<span class="syn-keyword">$1</span>');
+          // Built-ins
+          line = line.replace(biRe, '<span class="syn-builtin">$1</span>');
+          // Numbers
+          line = line.replace(/\b(\d+\.?\d*|0x[0-9a-fA-F]+|0b[01]+|0o[0-7]+)\b/g, '<span class="syn-number">$1</span>');
+          // Comments
+          if(comment){
+            comment = comment.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+            line += '<span class="syn-comment">'+comment+'</span>';
+          }
+          out.push(line);
+        }
+        return out.join('\n');
+      },
+
+      csv: function(text){
+        var lines = text.trim().split('\n');
+        if(!lines.length) return '<p>Empty CSV</p>';
+        var out = ['<table class="csv-table">'];
+        for(var i = 0; i < lines.length; i++){
+          var cells = lines[i].split(',').map(function(c){ return c.trim().replace(/^"|"$/g,''); });
+          var tag = i === 0 ? 'th' : 'td';
+          out.push('<tr>' + cells.map(function(c){ return '<'+tag+'>'+c.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</'+tag+'>'; }).join('') + '</tr>');
+        }
+        out.push('</table>');
+        return out.join('');
+      },
+
+      logs: function(text){
+        return text.split('\n').map(function(line){
+          var cls = '';
+          if(line.match(/\bERROR\b|\bFATAL\b|\bCRITICAL\b|\bEXCEPTION\b/i)) cls = 'log-error';
+          else if(line.match(/\bWARN(ING)?\b|\bALERT\b/i)) cls = 'log-warn';
+          else if(line.match(/\bINFO\b|\bNOTICE\b/i)) cls = 'log-info';
+          else if(line.match(/\bDEBUG\b|\bTRACE\b|\bVERBOSE\b/i)) cls = 'log-debug';
+          var esc = line.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+          if(cls) return '<div class="'+cls+'" style="padding:2px 4px;border-radius:4px;margin:1px 0;">'+esc+'</div>';
+          return '<div style="padding:2px 4px;color:#8fa89a;">'+esc+'</div>';
+        }).join('');
+      },
+
+      jsonTree: function(text){
+        try {
+          var obj = JSON.parse(text);
+          function walk(o, depth){
+            if(o === null) return '<span style="color:#569cd6;">null</span>';
+            if(typeof o === 'boolean') return '<span style="color:#569cd6;">'+o+'</span>';
+            if(typeof o === 'number') return '<span style="color:#b5cea8;">'+o+'</span>';
+            if(typeof o === 'string') return '<span style="color:#ce9178;">"'+o.replace(/"/g,'\\"').replace(/</g,'&lt;')+'"</span>';
+            if(Array.isArray(o)){
+              if(!o.length) return '<span style="color:#e8f0ec;">[]</span>';
+              var inner = o.map(function(v){ return '<div style="padding-left:16px;">'+walk(v, depth+1)+'</div>'; }).join('');
+              return '<details open><summary style="cursor:pointer;color:#e8f0ec;">[ '+o.length+' items ]</summary>'+inner+'</details>';
+            }
+            var keys = Object.keys(o);
+            if(!keys.length) return '<span style="color:#e8f0ec;">{}</span>';
+            var inner = keys.map(function(k){ return '<div style="padding-left:16px;"><span style="color:#9cdcfe;">"'+k+'"</span>: '+walk(o[k], depth+1)+'</div>'; }).join('');
+            return '<details open><summary style="cursor:pointer;color:#e8f0ec;">{ '+keys.length+' keys }</summary>'+inner+'</details>';
+          }
+          return '<div style="font-family:monospace;font-size:0.85rem;line-height:1.6;">'+walk(obj, 0)+'</div>';
+        } catch(e) {
+          return '<pre>'+text.replace(/</g,'&lt;').replace(/>/g,'&gt;')+'</pre>';
+        }
+      },
+
+      getLang: function(filename){
+        var ext = filename.split('.').pop().toLowerCase();
+        var map = {py:'python',js:'javascript',ts:'typescript',sh:'bash',go:'go',rs:'rust',java:'java',c:'c',cpp:'cpp',h:'c',hpp:'cpp',php:'php',rb:'ruby',sql:'sql',html:'html',css:'css',scss:'scss',yaml:'yaml',yml:'yaml',json:'json',xml:'xml',nginx:'nginx',conf:'ini',dockerfile:'dockerfile',md:'markdown',log:'log',csv:'csv',txt:'text'};
+        return map[ext] || '';
+      },
+
+      renderMermaidBlocks: function(container){
+        var blocks = container.querySelectorAll('.mermaid-block');
+        if(!blocks.length) return;
+        function fallbackAll(){
+          blocks.forEach(function(block){
+            var source = decodeURIComponent(block.getAttribute('data-mermaid') || '');
+            block.innerHTML = '<pre style="background:#0d1117;border:1px solid #333;border-radius:8px;padding:12px;overflow-x:auto;"><code>' + source.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</code></pre>';
+          });
+        }
+        function renderAll(){
+          if(!window.mermaid) { fallbackAll(); return; }
+          try { window.mermaid.initialize({ startOnLoad: false, theme: 'dark' }); } catch(e) {}
+          blocks.forEach(function(block){
+            var source = decodeURIComponent(block.getAttribute('data-mermaid') || '');
+            if(!source) return;
+            var id = 'mm-' + Math.random().toString(36).slice(2,9);
+            try {
+              window.mermaid.render(id, source).then(function(result){
+                block.innerHTML = result.svg;
+              }).catch(function(err){
+                block.innerHTML = '<pre style="background:#0d1117;border:1px solid #ff3333;border-radius:8px;padding:12px;color:#ff3333;">Mermaid error: ' + (err.message || 'unknown') + '</pre>';
+              });
+            } catch(err) { fallbackAll(); }
+          });
+        }
+        if(window.mermaid){ renderAll(); return; }
+        var script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js';
+        script.onload = renderAll;
+        script.onerror = fallbackAll;
+        document.head.appendChild(script);
+      }
+    };
+  })();
+  </script>
   <meta charset="UTF-8">
-  <meta id="viewport-meta" name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta id="viewport-meta" name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="theme-color" content="#000000">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Jericho">
   <title>Jericho Command Center</title>
-  <link rel="manifest" href="static/manifest.json?v=20">
-  <link rel="apple-touch-icon" href="static/icons/icon-192x192.png?v=20">
-  <link rel="stylesheet" href="static/css/jericho.css?v=20">
+  <link rel="manifest" href="static/manifest.json?v=39">
+  <link rel="apple-touch-icon" href="static/icons/icon-192x192.png?v=39">
+  <link rel="stylesheet" href="static/css/jericho.css?v=39">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <style>
+    :root {
+      --bg: #e8e0d4;
+      --surface: #f5f5f0;
+      --surface-2: #e8e8e0;
+      --accent: #f5a623;
+      --accent-2: #e09400;
+      --text: #2d2d2d;
+      --text-dim: #6b6b6b;
+      --danger: #ff5f57;
+      --warn: #ffbd2e;
+      --border: #d0d0d0;
+      --radius: 8px;
+      --shadow: 0 8px 32px rgba(0,0,0,0.15);
+      --text-shadow: none;
+      --scanline-opacity: 0;
+    }
+    /* Inline critical file browser styles — visible even if external CSS is cached */
+    .fb-loading { color: #ffffff; padding: 24px; text-align: center; font-size: 1rem; animation: fb-pulse 1.5s ease-in-out infinite; }
+    .fb-spinner { display: inline-block; animation: fb-spin 1s linear infinite; margin-right: 6px; }
+    .fb-empty { color: #8fa89a; padding: 24px; text-align: center; font-size: 1rem; }
+    .fb-error { background: #330000; border: 1px solid #ff3333; color: #ffffff; padding: 20px; text-align: center; border-radius: 8px; margin: 12px; }
+    .fb-dir { background: #1a3a28; border: 2px solid #4db87a; border-left: 6px solid #4db87a; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08); color: #ffffff; min-height: 80px; display: flex; flex-direction: column; justify-content: center; cursor: pointer; padding: 14px; }
+    .fb-file { background: #252525; border: 2px solid #888; border-left: 6px solid #888; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08); color: #ffffff; min-height: 80px; display: flex; flex-direction: column; justify-content: center; padding: 14px; }
+    .fb-icon { font-size: 1.6rem; margin-bottom: 4px; }
+    .fb-name { font-weight: 600; font-size: 0.95rem; word-break: break-word; }
+    .fb-meta { color: #8fa89a; font-size: 0.75rem; margin-top: 2px; }
+    .fb-actions { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+    /* Mobile preview modal */
+    @media (max-width: 640px) {
+      #preview-modal { padding: 8px !important; }
+      #preview-modal > div { padding: 12px !important; }
+      #preview-body { max-height: 80vh !important; }
+      #preview-close { min-height: 44px !important; padding: 8px 16px !important; }
+    }
+    #preview-body img { max-width: 100%; border-radius: 4px; display: block; margin: 0 auto; object-fit: contain; }
+    #preview-body pre { white-space: pre-wrap; word-break: break-word; font-family: monospace; font-size: 0.85rem; line-height: 1.5; color: #e8f0ec; }
+    /* Rich preview renderers */
+    .md-preview h1, .md-preview h2, .md-preview h3 { color: #e8f0ec; border-bottom: 1px solid #4db87a; padding-bottom: 4px; margin-top: 16px; }
+    .md-preview code { background: #0d1117; color: #4db87a; padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 0.9em; }
+    .md-preview pre { background: #0d1117; border: 1px solid #333; border-radius: 8px; padding: 12px; overflow-x: auto; margin: 8px 0; }
+    .md-preview blockquote { border-left: 4px solid #4db87a; margin: 8px 0; padding-left: 12px; color: #8fa89a; }
+    .md-preview a { color: #4db87a; }
+    .md-preview ul, .md-preview ol { padding-left: 20px; margin: 8px 0; }
+    .md-preview li { margin: 4px 0; }
+    .md-preview table { width: 100%; border-collapse: collapse; font-size: 0.85rem; margin: 8px 0; }
+    .md-preview th, .md-preview td { border: 1px solid #333; padding: 6px 8px; text-align: left; }
+    .md-preview th { background: #1a3a28; color: #4db87a; }
+    .syn-comment { color: #6a9955; }
+    .syn-string { color: #ce9178; }
+    .syn-keyword { color: #569cd6; }
+    .syn-number { color: #b5cea8; }
+    .syn-function { color: #dcdcaa; }
+    .syn-builtin { color: #4ec9b0; }
+    .csv-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    .csv-table th, .csv-table td { border: 1px solid #333; padding: 6px 8px; text-align: left; }
+    .csv-table th { background: #1a3a28; color: #4db87a; }
+    .csv-table tr:nth-child(even) { background: #0d1117; }
+    .log-error { background: #330000; color: #ff3333; }
+    .log-warn { background: #332200; color: #ffaa00; }
+    .log-info { color: #4db87a; }
+    .log-debug { color: #666; }
+    .mermaid-block { background: #0d1117; border: 1px solid #333; border-radius: 8px; padding: 16px; margin: 8px 0; text-align: center; min-height: 60px; }
+    .mermaid-loading { color: #8fa89a; font-size: 0.85rem; animation: fb-pulse 1.5s ease-in-out infinite; }
+    .mermaid-block svg { max-width: 100%; height: auto; }
+    .changelog-more { display: block; text-align: center; padding: 10px; margin-top: 8px; color: #4db87a; text-decoration: none; font-size: 0.85rem; font-weight: 500; border-top: 1px solid #333; min-height: 44px; line-height: 24px; }
+    .changelog-more:hover { color: #6ee8a0; }
+    #tab-changelog { padding-bottom: 20px; }
+
+    /* Ultra-narrow mobile (Samsung S23 Ultra, iPhone Pro Max) */
+    @media (max-width: 430px) {
+      .card-grid { grid-template-columns: 1fr; gap: 12px; }
+      .card { padding: 16px; min-height: 80px; }
+      .btn-small, .nav-tab { min-height: 48px; padding: 10px 14px; font-size: 15px; }
+      #terminal-container { height: max(calc(100dvh - 300px), 280px); }
+      .fb-dir, .fb-file { min-height: 72px; padding: 16px; }
+      .fb-preview, .fb-actions a { min-height: 44px; }
+      .topbar { padding: 10px 12px; gap: 8px; }
+      .logo { font-size: 1rem; }
+      #preview-modal { padding: 6px !important; }
+      #preview-modal > div { padding: 10px !important; }
+      .statusbar { font-size: 11px; padding: 6px 12px; }
+    }
+    @keyframes fb-pulse { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
+    @keyframes fb-spin { from{transform:rotate(0deg);} to{transform:rotate(360deg);} }
+  </style>
 </head>
 <body>
   <div id="app">
+    <div id="desktop-bg" style="display:none;position:absolute;top:0;left:0;right:0;bottom:0;z-index:0;"></div>
     <!-- Dashboard only — auth page removed for prototype -->
     <section id="dashboard" class="view active">
       <header class="topbar">
-        <div class="logo">⬡ Jericho <span class="build-badge">b21</span></div>
+        <div class="logo">⬡ Jericho <span class="build-badge">b38</span></div>
         <button id="fs-toggle" class="fs-toggle" aria-label="Toggle fullscreen">⛶</button>
         <div class="topbar-right">
+          <a id="sudo-toggle" class="sudo-toggle" href="/" target="_blank" title="Sudo Mode" aria-label="Toggle sudo mode" style="text-decoration:none;display:inline-flex;align-items:center;cursor:pointer;">
+            <span class="sudo-icon">🛡️</span>
+            <span id="sudo-countdown" class="sudo-countdown"></span>
+          </a>
           <span id="capability-badge" class="cap-badge free">Free</span>
           <button id="nav-menu-btn" class="nav-menu-btn" aria-expanded="false" aria-label="Menu">☰</button>
         </div>
@@ -29,7 +348,7 @@
             <span>Menu</span>
             <button class="nav-overlay-close" aria-label="Close menu">✕</button>
           </div>
-          <button class="nav-tab active" data-tab="projects">📁 Projects</button>
+          <button class="nav-tab active" data-tab="projects">📁 File Browser</button>
           <button class="nav-tab" data-tab="system">📊 System</button>
           <button class="nav-tab" data-tab="agents">⚡ Quick Actions</button>
           <button class="nav-tab" data-tab="platforms">🤖 Platforms</button>
@@ -44,11 +363,93 @@
           <div class="nav-version">
             <button class="nav-version-toggle" id="nav-version-toggle" aria-expanded="false">
               <span>⬡ Jericho</span>
-              <span class="build-badge">b20</span>
+              <span class="build-badge">b38</span>
               <span class="dev-tag">dev</span>
               <span class="version-chevron">▾</span>
             </button>
             <div class="nav-changelog" id="nav-changelog" aria-hidden="true"></div>
+            <script>
+            (function(){
+              var changelog = [
+                { version: 'Build 34', tag: '0.10.0', date: '2026-05-22', changes: [
+                  'Build 34: Changelog versioning fix — each build now shows unique Build N title',
+                ]},
+                { version: 'Build 33', tag: '0.10.0', date: '2026-05-22', changes: [
+                  'Build 33: Menu overlay polish — renamed Projects to File Browser',
+                  'Build 33: Inline changelog renderer — works even if cached JS is stale',
+                  'Build 33: Tap-outside-to-close menu overlay with touchstart support',
+                ]},
+                { version: 'Build 32', tag: '0.10.0', date: '2026-05-22', changes: [
+                  'Build 32: Mermaid diagram support in markdown file previews',
+                  'Build 32: Lazy CDN load with graceful fallback to raw source',
+                ]},
+                { version: 'Build 31', tag: '0.10.0', date: '2026-05-22', changes: [
+                  'Build 31: Rich file preview — markdown, syntax highlighting, CSV, logs, JSON',
+                  'Build 31: Inline zero-dependency renderers in HTML head',
+                  'Build 31: Mobile-friendly preview modal with 44px touch targets',
+                ]},
+                { version: 'Build 30', tag: '0.10.0', date: '2026-05-21', changes: [
+                  'Build 30: File preview on mobile — Preview & Download buttons on inline cards',
+                  'Build 30: Inline preview handler bypassing cached JS',
+                ]},
+                { version: 'Build 29', tag: '0.10.0', date: '2026-05-21', changes: [
+                  'Build 29: Strategic SW + inline fetch — network-only service worker registers first',
+                  'Build 29: Inline critical CSS and diagnostic fetch script',
+                  'Build 29: Manifest start_url tied to build version for PWA cache busting',
+                ]},
+                { version: 'Build 28', tag: '0.10.0', date: '2026-05-20', changes: [
+                  'Build 28: Health restoration — started monitor, agentd, shell, terminal-bridge',
+                  'Build 28: Removed nginx port 9010 block, updated shell systemd unit',
+                ]},
+                { version: 'Build 27', tag: '0.10.0', date: '2026-05-20', changes: [
+                  'Build 27: Nuclear cache break — per-build SW_BUILD sessionStorage key',
+                  'Build 27: Clear-Site-Data header, unconditional SW unregister + IndexedDB purge',
+                ]},
+                { version: 'Build 26', tag: '0.10.0', date: '2026-05-20', changes: [
+                  'Build 26: File browser fetch hardening — cache: no-store, 8s mobile timeout',
+                  'Build 26: Red error box with retry, CORS mode',
+                ]},
+                { version: 'Build 25', tag: '0.10.0', date: '2026-05-19', changes: [
+                  'Build 25: Full mobile UX overhaul — visible card backgrounds, local xterm.js',
+                  'Build 25: Connection status dot, changelog inline render, nginx no-cache headers',
+                ]},
+                { version: 'Build 24', tag: '0.10.0', date: '2026-05-19', changes: [
+                  'Build 24: Terminal-bridge secret fix, error boundaries, BUILD_ID bump',
+                  'Build 24.1: Fixed hardcoded build numbers in index.html and jericho.js',
+                ]},
+                { version: 'Build 23', tag: '0.10.0', date: '2026-05-19', changes: [
+                  'Build 23: Rebuilt container with cache buster fixes',
+                  'Build 23: TAB_SCRIPTS?v=BUILD_ID, handleResponse retry bug fix',
+                ]},
+                { version: 'Build 22', tag: '0.10.0', date: '2026-05-19', changes: [
+                  'Build 22: Secure sudo execution pipeline — mobile sudo via 2-min tickets',
+                  'Build 22: Sudo command allowlist with pattern matching + audit trail',
+                  'Build 22: File browser cache fix — removed executionContexts reload race',
+                  'Build 22: Shell microservice with sudo endpoints on port 9004',
+                ]},
+              ];
+              function esc(s){ return s ? s.replace(/[&<>"']/g, function(m){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]; }) : ''; }
+              function renderEntry(entry){
+                var changes = entry.changes.map(function(c){ return '<li>' + esc(c) + '</li>'; }).join('');
+                return '<div class="changelog-entry"><div class="ch-version"><span>' + esc(entry.version) + '</span><span class="dev-tag" style="font-size:9px;padding:1px 6px;">' + esc(entry.tag) + '</span></div><div class="ch-date">' + esc(entry.date) + '</div><ul>' + changes + '</ul></div>';
+              }
+              // Expose data globally for jericho.js
+              window._jerichoChangelogData = changelog;
+              // Overlay: show only 3 most recent + "more" link
+              var container = document.getElementById('nav-changelog');
+              if(container){
+                var recent = changelog.slice(0, 3);
+                container.innerHTML = recent.map(renderEntry).join('') +
+                  '<a href="#" class="changelog-more" data-tab="changelog" style="display:block;text-align:center;padding:10px;margin-top:8px;color:#4db87a;text-decoration:none;font-size:0.85rem;font-weight:500;border-top:1px solid #333;min-height:44px;line-height:24px;">📜 View full changelog →</a>';
+                container.setAttribute('data-inline-rendered', '1');
+              }
+              // Full tab: render all entries eagerly (panel is hidden by default)
+              var fullBody = document.getElementById('changelog-full-body');
+              if(fullBody){
+                fullBody.innerHTML = changelog.map(renderEntry).join('');
+              }
+            })();
+            </script>
           </div>
           <div class="nav-desktop-toggle">
             <label class="toggle-row">
@@ -57,44 +458,28 @@
               <span class="toggle-switch"></span>
             </label>
           </div>
+          <div class="nav-window-toggle">
+            <label class="toggle-row">
+              <span>🪟 Window Mode</span>
+              <input type="checkbox" id="window-mode-check">
+              <span class="toggle-switch"></span>
+            </label>
+          </div>
         </nav>
         <div id="theme-overlay" class="theme-overlay" aria-hidden="true">
           <div class="nav-overlay-header">
-            <span>🎨 Theme Gallery</span>
+            <span>🎨 Themes</span>
             <button class="nav-overlay-close" id="theme-overlay-close" aria-label="Close themes">✕</button>
           </div>
           <div class="theme-section">
-            <div class="theme-section-label">Presets</div>
+            <div class="theme-section-label">Choose a look</div>
             <div class="theme-grid" id="theme-presets"></div>
-          </div>
-          <div class="theme-section">
-            <div class="theme-section-label">Custom Themes</div>
-            <div class="theme-grid" id="theme-custom"></div>
-          </div>
-          <div class="theme-section">
-            <div class="theme-section-label">AI Theme Generator</div>
-            <div class="theme-gen-row">
-              <input type="text" id="theme-gen-input" placeholder="Describe your dream theme..." maxlength="200">
-              <button id="theme-gen-btn">Generate</button>
-            </div>
-            <div class="theme-gen-status" id="theme-gen-status"></div>
-            <div id="theme-preview-wrap" style="display:none;">
-              <div class="theme-preview-mini" id="theme-preview-mini"></div>
-              <div class="theme-tweak-area" id="theme-tweak-area">
-                <textarea id="theme-tweak-json" spellcheck="false"></textarea>
-              </div>
-              <div class="theme-actions">
-                <button class="btn-tweak" id="theme-tweak-btn">Tweak</button>
-                <button class="btn-discard" id="theme-discard-btn">Discard</button>
-                <button class="btn-apply" id="theme-apply-btn">Apply Theme</button>
-              </div>
-            </div>
           </div>
         </div>
       </header>
 
       <main class="main-content">
-        <!-- Projects / File Browser -->
+        <!-- File Browser -->
         <div id="tab-projects" class="tab-panel active">
           <div id="fb-header" style="flex-shrink:0;padding-bottom:8px;">
             <h2 style="margin:0 0 8px 0;">File Browser</h2>
@@ -113,8 +498,128 @@
           </div>
           <div id="fb-scroll-area" style="flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch;scroll-behavior:smooth;padding-bottom:60px;">
             <div id="projects-grid" class="card-grid">
-              <p id="fb-loading" style="color:var(--text-dim);padding:20px;text-align:center;">Loading files...</p>
+              <div class="fb-loading"><span class="fb-spinner">⟳</span> Loading folders...</div>
             </div>
+            <script>
+            (function(){
+              var grid = document.getElementById('projects-grid');
+              var pathEl = document.getElementById('fb-path');
+              var parentBtn = document.getElementById('fb-parent');
+              var refreshBtn = document.getElementById('fb-refresh');
+              if (!grid) return;
+              var PREFIX = location.pathname.startsWith('/jericho/') ? '/jericho' : '';
+              var token = 'prototype-bypass';
+              var currentPath = '/srv';
+
+              function escapeHtml(str){
+                if(!str) return '';
+                return str.replace(/[&<>"']/g, function(m){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]; });
+              }
+
+              function formatSize(s){
+                if(!s) return '';
+                if(s < 1024) return s+' B';
+                if(s < 1048576) return (s/1024).toFixed(1)+' KB';
+                return (s/1048576).toFixed(1)+' MB';
+              }
+
+              function renderPath(path){
+                currentPath = path;
+                if(pathEl) pathEl.textContent = path;
+                grid.innerHTML = '<div class="fb-loading"><span class="fb-spinner">⟳</span> Loading folders...</div>';
+                fetch(PREFIX + '/api/web/projects?path=' + encodeURIComponent(path), { cache: 'no-store', mode: 'cors', credentials: 'same-origin', headers: {'Authorization':'Bearer '+token,'Content-Type':'application/json'} })
+                  .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+                  .then(function(d){
+                    if(!d.entries || !d.entries.length){
+                      grid.innerHTML = '<div class="fb-empty">Empty directory</div>';
+                      if(parentBtn) parentBtn.style.display = d.parent ? 'inline-block' : 'none';
+                      return;
+                    }
+                    grid.innerHTML = d.entries.map(function(e){
+                      var name = escapeHtml(e.name);
+                      var epath = escapeHtml(e.path);
+                      if(e.type === 'directory'){
+                        return '<div class="card fb-dir" data-navigate="'+epath+'"><div class="fb-icon">📁</div><div class="fb-name">'+name+'</div><div class="fb-meta">folder</div></div>';
+                      }
+                      var size = formatSize(e.size);
+                      var encPath = encodeURIComponent(e.path);
+                      return '<div class="card fb-file"><div class="fb-icon">📄</div><div class="fb-name">'+name+'</div><div class="fb-meta">'+size+'</div><div class="fb-actions"><button class="btn-small fb-preview" data-preview="'+encPath+'" style="min-height:36px;">👁 Preview</button><a href="'+PREFIX+'/api/web/download?path='+encPath+'" target="_blank" class="btn-small" style="text-decoration:none;min-height:36px;">⬇ Download</a></div></div>';
+                    }).join('');
+                    if(parentBtn) parentBtn.style.display = d.parent ? 'inline-block' : 'none';
+                    // Attach click handlers to folder cards
+                    grid.querySelectorAll('.fb-dir').forEach(function(card){
+                      card.addEventListener('click', function(){
+                        var navPath = card.dataset.navigate;
+                        if(navPath) renderPath(navPath);
+                      });
+                    });
+                    // Attach click handlers to preview buttons
+                    grid.querySelectorAll('.fb-preview').forEach(function(btn){
+                      btn.addEventListener('click', function(ev){
+                        ev.stopPropagation();
+                        var filePath = btn.dataset.preview;
+                        if(!filePath) return;
+                        var modal = document.getElementById('preview-modal');
+                        var title = document.getElementById('preview-title');
+                        var body = document.getElementById('preview-body');
+                        if(!modal || !title || !body) return;
+                        title.textContent = 'Loading...';
+                        body.innerHTML = '<p style="color:#8fa89a">Loading preview...</p>';
+                        modal.style.display = 'block';
+                        fetch(PREFIX + '/api/web/preview?path=' + filePath, { cache: 'no-store', mode: 'cors', credentials: 'same-origin', headers: {'Authorization':'Bearer '+token,'Content-Type':'application/json'} })
+                          .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+                          .then(function(data){
+                            title.textContent = data.name || 'Preview';
+                            var r = window._jerichoRenderers;
+                            var lang = r.getLang(data.name || '');
+                            if(data.type === 'image'){
+                              body.innerHTML = '<img src="' + data.content.replace(/"/g, '&quot;') + '" style="max-width:100%;border-radius:4px;display:block;margin:0 auto;">';
+                            } else if(data.type === 'markdown'){
+                              body.innerHTML = r.markdown(data.content || '');
+                              r.renderMermaidBlocks(body);
+                            } else if(data.type === 'json'){
+                              body.innerHTML = r.jsonTree(data.content || '');
+                            } else if(lang === 'csv'){
+                              body.innerHTML = r.csv(data.content || '');
+                            } else if(lang === 'log'){
+                              body.innerHTML = r.logs(data.content || '');
+                            } else {
+                              var code = r.highlight(data.content || '', lang);
+                              body.innerHTML = '<pre style="background:#0d1117;border:1px solid #333;border-radius:8px;padding:12px;overflow-x:auto;"><code>' + code + '</code></pre>';
+                            }
+                            if(data.truncated) body.innerHTML += '<p style="color:#ffaa00;font-size:0.8rem;margin-top:8px;">⚠️ File truncated to 1MB preview</p>';
+                          })
+                          .catch(function(e){
+                            title.textContent = 'Error';
+                            body.innerHTML = '<p style="color:#ff3333">Preview failed: ' + (e.message || 'Unknown error') + '</p>';
+                          });
+                      });
+                    });
+                  })
+                  .catch(function(e){
+                    grid.innerHTML = '<div class="fb-error"><div style="font-size:1.2rem;margin-bottom:6px;">⚠️ Could not load folders</div><div style="font-size:0.85rem;opacity:0.9;margin-bottom:12px;">'+(e.message || 'Network error')+'</div><button onclick="location.reload(true)" style="font-size:14px;padding:10px 18px;min-height:44px;background:#1a1a2e;border:1px solid #333;border-radius:6px;color:#e8f0ec;cursor:pointer;">🔄 Tap to retry</button></div>';
+                  });
+              }
+
+              renderPath('/srv');
+
+              if(parentBtn){
+                parentBtn.addEventListener('click', function(){
+                  var parts = currentPath.split('/').filter(function(p){ return p; });
+                  parts.pop();
+                  var parentPath = '/' + parts.join('/');
+                  if(!parentPath || parentPath === '/') parentPath = '/srv';
+                  renderPath(parentPath);
+                });
+              }
+
+              if(refreshBtn){
+                refreshBtn.addEventListener('click', function(){
+                  renderPath(currentPath);
+                });
+              }
+            })();
+            </script>
             <button id="fb-scroll-top" style="display:none;position:sticky;bottom:16px;left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--border);color:var(--text);padding:8px 16px;border-radius:20px;box-shadow:0 2px 8px rgba(0,0,0,0.3);z-index:10;">⬆ Top</button>
           </div>
         </div>
@@ -244,12 +749,19 @@
           <button id="upload-btn" class="btn-primary">Upload</button>
           <p id="upload-status"></p>
         </div>
+
+        <!-- Changelog (hidden from nav overlay, reachable via link) -->
+        <div id="tab-changelog" class="tab-panel">
+          <h2 style="margin:0 0 12px 0;">Changelog</h2>
+          <div id="changelog-full-body"></div>
+        </div>
       </main>
 
       <footer class="statusbar">
         <span id="docker-pulse">Docker: scanning...</span>
         <span id="tailscale-pulse">Tailscale: scanning...</span>
       </footer>
+      <div id="taskbar" style="display:none;position:fixed;bottom:0;left:0;right:0;height:48px;background:var(--surface);border-top:1px solid var(--border);z-index:1000;padding:4px 12px;gap:8px;align-items:center;"></div>
     </section>
   </div>
 
@@ -263,45 +775,33 @@
   </div>
   <button id="debug-toggle" style="position:fixed;bottom:4px;right:4px;z-index:10000;background:var(--surface);color:var(--text-dim);border:none;padding:2px 6px;font-size:10px;opacity:0.3;">dbg</button>
 
+  <!-- Sudo Auth Modal -->
+  <div id="sudo-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;background:rgba(0,0,0,0.85);padding:16px;overflow:auto;align-items:center;justify-content:center;">
+    <div style="max-width:360px;margin:auto;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;">
+      <h3 style="margin:0 0 16px 0;font-size:1.1rem;">🔐 Elevate to Sudo</h3>
+      <p style="margin:0 0 12px 0;color:var(--text-dim);font-size:0.85rem;">Enter your passphrase and current TOTP code to activate sudo mode for 2 minutes.</p>
+      <input type="password" id="sudo-passphrase" placeholder="Passphrase" style="width:100%;padding:10px;margin-bottom:10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:1rem;box-sizing:border-box;">
+      <input type="text" id="sudo-totp" placeholder="TOTP (6 digits)" inputmode="numeric" pattern="[0-9]*" maxlength="6" style="width:100%;padding:10px;margin-bottom:16px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:1rem;box-sizing:border-box;">
+      <div id="sudo-error" style="color:var(--danger);font-size:0.85rem;margin-bottom:10px;display:none;"></div>
+      <div style="display:flex;gap:8px;">
+        <button id="sudo-cancel" style="flex:1;padding:10px;background:var(--surface-2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:0.9rem;">Cancel</button>
+        <button id="sudo-confirm" style="flex:1;padding:10px;background:var(--accent);border:none;border-radius:6px;color:#fff;font-size:0.9rem;font-weight:600;">Activate</button>
+      </div>
+    </div>
+  </div>
+
   <!-- File Preview Modal -->
   <div id="preview-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:9998;background:rgba(0,0,0,0.85);padding:16px;overflow:auto;">
     <div style="max-width:900px;margin:0 auto;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
         <h3 id="preview-title" style="margin:0;font-size:1rem;word-break:break-all;">Preview</h3>
-        <button id="preview-close" style="background:transparent;border:1px solid var(--border);color:var(--text);padding:4px 12px;border-radius:6px;">✕ Close</button>
+        <button id="preview-close" style="background:transparent;border:1px solid var(--border);color:var(--text);padding:8px 16px;border-radius:6px;min-height:44px;cursor:pointer;">✕ Close</button>
       </div>
-      <div id="preview-body" style="max-height:70vh;overflow:auto;background:var(--bg);border-radius:var(--radius);padding:12px;"></div>
+      <div id="preview-body" style="max-height:80vh;overflow:auto;background:var(--bg);border-radius:var(--radius);padding:12px;"></div>
     </div>
   </div>
 
-  <script>const BUILD_ID = '20';</script>
-  <script>
-    // Emergency: force-unregister old service worker and install no-op replacement
-    (function(){
-      if(!('serviceWorker' in navigator)) return;
-      // Prevent infinite reload loop — only run once per session
-      if(sessionStorage.getItem('sw_cleared_v10')) return;
-      navigator.serviceWorker.getRegistrations().then(function(regs){
-        var hadOld = regs.length > 0;
-        regs.forEach(function(reg){ reg.unregister(); });
-        // Also nuke all caches directly from the page
-        if('caches' in window){
-          caches.keys().then(function(names){
-            return Promise.all(names.map(function(n){ return caches.delete(n); }));
-          });
-        }
-        // Register new no-op SW with cache bust
-        navigator.serviceWorker.register('static/sw.js?v=15', {scope: '/'}).then(function(){
-          console.log('[SW] new no-op registered');
-          if(hadOld){
-            sessionStorage.setItem('sw_cleared_v10', '1');
-            console.log('[SW] old SW unregistered, reloading once...');
-            window.location.reload();
-          }
-        }).catch(function(e){ console.error('[SW] register failed', e); });
-      });
-    })();
-  </script>
-  <script src="static/js/jericho.js?v=20"></script>
+  <script>const BUILD_ID = '39';</script>
+  <script src="static/js/jericho.js?v=39"></script>
 </body>
 </html>
