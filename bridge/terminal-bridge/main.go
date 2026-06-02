@@ -161,14 +161,19 @@ func handleWebTerminal(w http.ResponseWriter, r *http.Request, expectedClientTyp
 		shell = "bash"
 	}
 
+	userHome := os.Getenv("JERICHO_USER_HOME")
+	if userHome == "" {
+		userHome = "/home/YOUR_USER"
+	}
+
 	var cmd *exec.Cmd
 	switch shell {
 	case "kimi":
 		sessionUUID := r.URL.Query().Get("uuid")
 		if sessionUUID != "" {
-			cmd = exec.Command("/home/YOUR_USER/.local/bin/kimi", "--session", sessionUUID)
+			cmd = exec.Command(userHome+"/.local/bin/kimi", "--session", sessionUUID)
 		} else {
-			cmd = exec.Command("/home/YOUR_USER/.local/bin/kimi")
+			cmd = exec.Command(userHome + "/.local/bin/kimi")
 		}
 	default:
 		cmd = exec.Command("bash", "-l")

@@ -8,7 +8,7 @@ services:
       - /srv:/srv
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - YOUR_TAILSCALE_SOCK_PATH:YOUR_TAILSCALE_SOCK_PATH
-      - /home/YOUR_USER/.kimi/sessions:/home/YOUR_USER/.kimi/sessions:ro
+      - ${JERICHO_USER_HOME:-/home/YOUR_USER}/.kimi/sessions:${JERICHO_USER_HOME:-/home/YOUR_USER}/.kimi/sessions:ro
       - /proc:/host/proc:ro
       - jericho-data:/data
     environment:

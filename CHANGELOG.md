@@ -40,3 +40,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Multi-service nginx config (ports 9000, 9010)
 - `setup.sh` for automated secret generation
 - `backup.sh` for data preservation
+
+---
+
+## [0.11.0] — 2026-05-24
+
+### Added
+- Desktop Window Manager Mode — floating app windows with drag, minimize, maximize, close
+- Left sidebar dock for quick app launching in desktop mode
+- PostHog-inspired desktop OS aesthetic — warm beige background, traffic light window buttons
+- 3 minimal themes: Paper Desktop (warm beige), Slate Dark, The Construct (Matrix green)
+- GPU-composited window dragging via `transform: translate3d()` + `requestAnimationFrame`
+- Smooth window transitions (minimize, maximize, restore, close) with CSS cubic-bezier
+- Window resize handle and custom scrollbar styling
+- Feature cards and inline tab styling for window content
+- Samsung S23 Ultra ultra-narrow mobile breakpoint
+- `interactive-widget=resizes-content` viewport meta for Android keyboards
+
+### Changed
+- Theme engine reduced from 6 presets + AI generator to 3 focused presets
+- Matrix rain background replaced with warm beige textured desktop
+- CRT scanline effects removed from default theme
+- All window manager CSS moved from inline styles to external stylesheet
+
+### Fixed
+- All desktop windows now correctly populate with data (not just File Browser)
+- Theme overlay renders reliably with simplified 3-preset layout
+- Window drag clamped to respect sidebar and taskbar boundaries
+
+---
+
+## [0.11.1] — 2026-06-02
+
+### Changed
+- Modularized monolithic `backend/main.py` (1,475 lines) into 12 FastAPI routers under `backend/routers/`
+- Extracted shared modules: `config.py`, `models.py`, `deps.py`, `cache.py`, `ratelimit.py`
+- Replaced all hardcoded HTTP status codes with `fastapi.status` constants
+- Centralized service URLs and ports in `backend/config.py`
+- Replaced hardcoded `YOUR_USER` paths with `JERICHO_USER_HOME` environment variable
+- Consolidated repository layout — removed deprecated `upload-ready/` nested copy tree
+
+### Removed
+- Deprecated `github/upload-ready/` nested copy tree

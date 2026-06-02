@@ -14,14 +14,15 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, status
 from fastapi.responses import JSONResponse
 
 DB_PATH = Path("/srv/jericho/data/host-bridge.db")
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 PORT_RANGE = range(11000, 11101)
 MAX_CONCURRENT = 10
-KIMI_BIN = "/home/YOUR_USER/.local/bin/kimi"
+USER_HOME = os.environ.get("JERICHO_USER_HOME", "/home/YOUR_USER")
+KIMI_BIN = os.path.join(USER_HOME, ".local/bin/kimi")
 
 def init_db():
     conn = sqlite3.connect(DB_PATH)
@@ -60,7 +61,7 @@ def get_free_port() -> int:
                 return port
             except OSError:
                 continue
-    raise HTTPException(status_code=503, detail="No free ports available")
+    raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="No free ports available")
 
 
 def cleanup_dead():
@@ -80,7 +81,7 @@ def cleanup_dead():
 def list_sessions():
     """Return all Kimi sessions from filesystem."""
     sessions = []
-    base = Path("/home/YOUR_USER/.kimi/sessions")
+    base = Path(USER_HOME) / ".kimi/sessions"
     if not base.exists():
         return sessions
     for device_dir in base.iterdir():
@@ -124,7 +125,7 @@ def launch_session(uuid: str):
     count = c.fetchone()[0]
     if count >= MAX_CONCURRENT:
         conn.close()
-        raise HTTPException(status_code=503, detail="Max concurrent Web UIs reached (5)")
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Max concurrent Web UIs reached (5)")
     port = get_free_port()
     token = secrets.token_hex(16)
     cmd = [
@@ -162,7 +163,7 @@ def stop_session(port: int):
     row = c.fetchone()
     if not row:
         conn.close()
-        raise HTTPException(status_code=404, detail="Instance not found")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Instance not found")
     pid = row[0]
     try:
         os.kill(pid, signal.SIGTERM)

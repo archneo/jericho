@@ -6,11 +6,11 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import jwt
-from fastapi import Request, HTTPException
+from fastapi import Request, HTTPException, status
 
 DATA_DIR = Path("/data")
 DB_PATH = DATA_DIR / "jericho.db"
-SECRET_KEY = os.environ.get("JERICHO_SECRET_KEY", "dev-secret-change-me")
+SECRET_KEY = os.environ.get("JERICHO_SECRET_KEY", "SET_VIA_ENV_JERICHO_SECRET_KEY")
 ALGORITHM = "HS256"
 ACCESS_TTL = timedelta(minutes=15)
 REFRESH_TTL = timedelta(days=7)
@@ -87,12 +87,12 @@ def verify_token(token: str, expected_type: str = "access") -> dict:
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
     except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Token expired")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired")
     except jwt.InvalidTokenError:
-        raise HTTPException(status_code=401, detail="Invalid token")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
     if payload.get("type") != expected_type:
-        raise HTTPException(status_code=401, detail="Wrong token type")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Wrong token type")
 
     return payload
 
@@ -108,7 +108,7 @@ def verify_refresh_token(token: str) -> dict:
     conn.close()
 
     if not row or row[0]:
-        raise HTTPException(status_code=401, detail="Refresh token revoked")
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token revoked")
 
     return payload
 
@@ -142,6 +142,21 @@ def mint_terminal_ticket(user_id: str, client_type: str, tier: str, attested: bo
         "iat": now,
         "exp": now + timedelta(minutes=5),
         "type": "ticket",
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+
+
+SUDO_TTL = timedelta(minutes=2)
+
+def mint_sudo_ticket(user_id: str) -> str:
+    now = datetime.now(timezone.utc)
+    jti = secrets.token_urlsafe(16)
+    payload = {
+        "sub": user_id,
+        "jti": jti,
+        "iat": now,
+        "exp": now + SUDO_TTL,
+        "type": "sudo",
     }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
 
