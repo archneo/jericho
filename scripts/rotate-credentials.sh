@@ -66,6 +66,17 @@ fi
 echo "[5/5] Restarting jericho-api container (ttyd + code-server stay running)..."
 docker compose up -d jericho-api
 
+# ─── Generate QR code ────────────────────────────────────────────────────────
+QR_FILE="totp-qr-$(date +%s).png"
+python3 -c "
+import qrcode
+qr = qrcode.QRCode(version=1, box_size=10, border=4)
+qr.add_data('otpauth://totp/Jericho?secret=$TOTP_SECRET&issuer=Jericho')
+qr.make(fit=True)
+img = qr.make_image(fill_color='black', back_color='white')
+img.save('$QR_FILE')
+" 2>/dev/null || true
+
 # ─── Display credentials ─────────────────────────────────────────────────────
 echo ""
 echo "═══════════════════════════════════════════════════════════════════"
@@ -77,8 +88,13 @@ echo ""
 echo "  Passphrase:    (the one you just entered)"
 echo "  TOTP Secret:   $TOTP_SECRET"
 echo ""
-echo "  QR Code URL:"
-echo "  otpauth://totp/Jericho?secret=$TOTP_SECRET&issuer=Jericho"
+if [ -f "$QR_FILE" ]; then
+  echo "  QR Code:       $QR_FILE"
+  echo "  (Scan this image with your Authenticator app)"
+else
+  echo "  QR Code URL:   otpauth://totp/Jericho?secret=$TOTP_SECRET&issuer=Jericho"
+  echo "  (This is NOT a web URL — paste it into your Authenticator app)"
+fi
 echo ""
 echo "  Add the TOTP secret to your Authenticator app:"
 echo "    • Aegis Authenticator (recommended)"

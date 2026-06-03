@@ -87,7 +87,9 @@ bash scripts/rotate-credentials.sh
 2. You enter a new passphrase (with confirmation)
 3. A new TOTP secret is generated
 4. Only the `jericho-api` container restarts (~1–2s)
-5. New TOTP secret + QR code URL are displayed for your Authenticator app
+5. New TOTP secret + QR code image are displayed for your Authenticator app
+
+> ⚠️ **Important:** The `otpauth://` link shown is **not a web URL**. It is a URI scheme handled by authenticator apps (Aegis, Google Authenticator, Authy). If you try to open it in a browser, you will get `ERR_NAME_NOT_RESOLVED`. Either scan the generated QR code image or manually enter the TOTP secret into your app.
 
 ### Recovery
 ```bash
