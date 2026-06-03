@@ -111,7 +111,8 @@ async def health_pulse():
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as session:
                 async with session.get(f'{AGENTD_URL}/health') as resp:
                     health_record('agentd', 'up' if resp.status == 200 else 'down')
-        except Exception:
+        except Exception as e:
+            print(f"[worker] agentd health check failed: {e}")
             health_record('agentd', 'unreachable')
         await asyncio.sleep(30)
 

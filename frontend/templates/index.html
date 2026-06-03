@@ -4,9 +4,11 @@
   <script>
     // Register network-only SW FIRST, before any content loads
     if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('static/sw.js?v=39', {scope: '/'})
-        .then(function(reg){ console.log('[SW] v38 registered', reg.scope); })
-        .catch(function(e){ console.error('[SW] v38 failed', e); });
+      // Service worker disabled — was caching stale JS and breaking auth updates
+      // To re-enable later, create a proper SW that handles cache invalidation
+      navigator.serviceWorker.getRegistrations().then(function(regs) {
+        regs.forEach(function(reg) { reg.unregister(); });
+      });
     }
   </script>
   <script>
@@ -236,9 +238,9 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="Jericho">
   <title>Jericho Command Center</title>
-  <link rel="manifest" href="static/manifest.json?v=39">
-  <link rel="apple-touch-icon" href="static/icons/icon-192x192.png?v=39">
-  <link rel="stylesheet" href="static/css/jericho.css?v=39">
+  <link rel="manifest" href="static/manifest.json?v=40">
+  <link rel="apple-touch-icon" href="static/icons/icon-192x192.png?v=40">
+  <link rel="stylesheet" href="static/css/jericho.css?v=40">
   <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
   <style>
     :root {
@@ -814,7 +816,7 @@
     </div>
   </div>
 
-  <script>const BUILD_ID = '39';</script>
-  <script src="static/js/jericho.js?v=39"></script>
+  <script>const BUILD_ID = '40';</script>
+  <script src="static/js/jericho.js?v=40"></script>
 </body>
 </html>

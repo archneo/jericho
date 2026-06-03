@@ -82,8 +82,8 @@ def log_version_change():
                         if len(parts) >= 2:
                             last_version = parts[1]
                             break
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[version-log] failed to read changelog: {e}")
 
     if last_version != JERICHO_VERSION:
         ts = datetime.now(timezone.utc).isoformat()

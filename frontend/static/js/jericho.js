@@ -763,7 +763,7 @@ function debugShow() {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function getAuthHeaders() {
   const headers = { 'Content-Type': 'application/json' };
-  if (accessToken) {
+  if (accessToken && accessToken !== 'dev-bypass') {
     headers['Authorization'] = 'Bearer ' + accessToken;
   }
   return headers;
@@ -929,17 +929,17 @@ async function checkSession() {
 }
 
 async function login() {
-  const passphrase = document.getElementById('login-passphrase').value;
-  const totp = document.getElementById('login-totp').value;
+  const passphrase = document.getElementById('login-passphrase')?.value || '';
+  const totp = document.getElementById('login-totp')?.value || '';
   const errorEl = document.getElementById('login-error');
 
   if (!passphrase) {
-    errorEl.textContent = 'Passphrase required';
-    errorEl.style.display = 'block';
+    if (errorEl) { errorEl.textContent = 'Passphrase required'; errorEl.style.display = 'block'; }
+    else { alert('Passphrase required'); }
     return;
   }
 
-  debugLog('[login] authenticating...');
+  debugLog('[login] authenticating to ' + (PREFIX + '/api/auth/login'));
   try {
     const res = await fetch(PREFIX + '/api/auth/login', {
       method: 'POST',
@@ -948,10 +948,14 @@ async function login() {
       body: JSON.stringify({ passphrase, totp }),
     });
 
+    debugLog('[login] response status: ' + res.status);
+
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      errorEl.textContent = data.detail || 'Authentication failed';
-      errorEl.style.display = 'block';
+      const msg = data.detail || 'Authentication failed (' + res.status + ')';
+      debugLog('[login] auth failed: ' + msg);
+      if (errorEl) { errorEl.textContent = msg; errorEl.style.display = 'block'; }
+      else { alert(msg); }
       return;
     }
 
@@ -960,9 +964,11 @@ async function login() {
     debugLog('[login] authenticated successfully');
 
     // Clear inputs
-    document.getElementById('login-passphrase').value = '';
-    document.getElementById('login-totp').value = '';
-    errorEl.style.display = 'none';
+    const ppInput = document.getElementById('login-passphrase');
+    const totpInput = document.getElementById('login-totp');
+    if (ppInput) ppInput.value = '';
+    if (totpInput) totpInput.value = '';
+    if (errorEl) errorEl.style.display = 'none';
 
     capabilities = {
       terminal: true, agent_control: true, file_browser: true,
@@ -972,21 +978,10 @@ async function login() {
     updateCapabilityBadge('free');
     showDashboard();
   } catch (e) {
-    errorEl.textContent = 'Network error: ' + e.message;
-    errorEl.style.display = 'block';
+    debugLog('[login] network/syntax error: ' + e.message);
+    if (errorEl) { errorEl.textContent = 'Network error: ' + e.message; errorEl.style.display = 'block'; }
+    else { alert('Network error: ' + e.message); }
   }
-}
-
-function devBypass() {
-  debugLog('[devBypass] triggered');
-  accessToken = 'dev-bypass';
-  capabilities = {
-    terminal: true, agent_control: true, file_browser: true,
-    push_notifications: false, offline_queue: false,
-    biometric_unlock: false, team_sharing: false, audit_logs: false
-  };
-  updateCapabilityBadge('free');
-  showDashboard();
 }
 
 async function logout() {
@@ -2001,22 +1996,6 @@ const logoutBtn = document.getElementById('logout-btn');
 if (logoutBtn) logoutBtn.addEventListener('click', logout);
 document.getElementById('login-passphrase').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
 document.getElementById('login-totp').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
-
-// ─── Dev bypass: triple-tap the gate icon ────────────────────────────────────
-let gateTapCount = 0;
-let gateTapTimer = null;
-const gateIcon = document.querySelector('.gate-icon');
-if (gateIcon) {
-  gateIcon.addEventListener('click', () => {
-    gateTapCount++;
-    if (gateTapTimer) clearTimeout(gateTapTimer);
-    gateTapTimer = setTimeout(() => { gateTapCount = 0; }, 800);
-    if (gateTapCount >= 3) {
-      gateTapCount = 0;
-      devBypass();
-    }
-  });
-}
 
 // ─── PWA Install ─────────────────────────────────────────────────────────────
 let deferredPrompt = null;
