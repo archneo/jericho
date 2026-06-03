@@ -7,7 +7,7 @@ services:
     volumes:
       - /srv:/srv
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - YOUR_TAILSCALE_SOCK_PATH:YOUR_TAILSCALE_SOCK_PATH
+      - ${TAILSCALE_SOCK_PATH}:/run/tailscale/tailscaled.sock
       - ${JERICHO_USER_HOME:-/home/YOUR_USER}/.kimi/sessions:${JERICHO_USER_HOME:-/home/YOUR_USER}/.kimi/sessions:ro
       - /proc:/host/proc:ro
       - jericho-data:/data

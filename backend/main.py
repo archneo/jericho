@@ -23,8 +23,8 @@ from routers.commands import router as commands_router
 from routers.kimi import router as kimi_router
 from routers.sudo import router as sudo_router
 from routers.native import router as native_router
-from routers.debug import router as debug_router
 from routers.audit import router as audit_router
+from vault.router import router as vault_router, init_vault_db
 
 
 # ─── DB init ──────────────────────────────────────────────────────────────────
@@ -63,6 +63,7 @@ def init_db():
     """)
     conn.commit()
     conn.close()
+    init_vault_db()
 
 
 init_db()
@@ -175,5 +176,5 @@ app.include_router(commands_router)
 app.include_router(kimi_router)
 app.include_router(sudo_router)
 app.include_router(native_router)
-app.include_router(debug_router)
 app.include_router(audit_router)
+app.include_router(vault_router)

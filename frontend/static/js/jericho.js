@@ -763,8 +763,9 @@ function debugShow() {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function getAuthHeaders() {
   const headers = { 'Content-Type': 'application/json' };
-  // Prototype bypass: always send bypass token
-  headers['Authorization'] = 'Bearer prototype-bypass';
+  if (accessToken) {
+    headers['Authorization'] = 'Bearer ' + accessToken;
+  }
   return headers;
 }
 
@@ -861,7 +862,10 @@ async function apiPost(url, body) {
 }
 
 async function apiPostForm(url, formData) {
-  const headers = { 'Authorization': 'Bearer prototype-bypass' };
+  const headers = {};
+  if (accessToken) {
+    headers['Authorization'] = 'Bearer ' + accessToken;
+  }
   debugLog('[fetch] POST(form) ' + API_BASE + url);
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 15000);
@@ -906,22 +910,71 @@ async function tryRefresh() {
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 async function checkSession() {
-  // AUTH BYPASSED FOR PROTOTYPE — loads dashboard directly
-  debugLog('[checkSession] auth bypassed, loading dashboard');
-  accessToken = 'prototype-bypass';
-  capabilities = {
-    terminal: true, agent_control: true, file_browser: true,
-    push_notifications: false, offline_queue: false,
-    biometric_unlock: false, team_sharing: false, audit_logs: false
-  };
-  updateCapabilityBadge('free');
-  showDashboard();
+  debugLog('[checkSession] checking session...');
+  // Try refreshing the token first
+  const refreshed = await tryRefresh();
+  if (refreshed) {
+    debugLog('[checkSession] session refreshed, loading dashboard');
+    capabilities = {
+      terminal: true, agent_control: true, file_browser: true,
+      push_notifications: false, offline_queue: false,
+      biometric_unlock: false, team_sharing: false, audit_logs: false
+    };
+    updateCapabilityBadge('free');
+    showDashboard();
+    return;
+  }
+  debugLog('[checkSession] no valid session, showing login');
+  showLogin();
 }
 
 async function login() {
-  // AUTH BYPASSED FOR PROTOTYPE
-  debugLog('[login] auth bypassed, loading dashboard');
-  showDashboard();
+  const passphrase = document.getElementById('login-passphrase').value;
+  const totp = document.getElementById('login-totp').value;
+  const errorEl = document.getElementById('login-error');
+
+  if (!passphrase) {
+    errorEl.textContent = 'Passphrase required';
+    errorEl.style.display = 'block';
+    return;
+  }
+
+  debugLog('[login] authenticating...');
+  try {
+    const res = await fetch(API_BASE + 'auth/login', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ passphrase, totp }),
+    });
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      errorEl.textContent = data.detail || 'Authentication failed';
+      errorEl.style.display = 'block';
+      return;
+    }
+
+    const data = await res.json();
+    accessToken = data.access_token;
+    debugLog('[login] authenticated successfully');
+
+    // Clear inputs
+    document.getElementById('login-passphrase').value = '';
+    document.getElementById('login-totp').value = '';
+    errorEl.style.display = 'none';
+
+    capabilities = {
+      terminal: true, agent_control: true, file_browser: true,
+      push_notifications: false, offline_queue: false,
+      biometric_unlock: false, team_sharing: false, audit_logs: false
+    };
+    updateCapabilityBadge('free');
+    showDashboard();
+  } catch (e) {
+    errorEl.textContent = 'Network error: ' + e.message;
+    errorEl.style.display = 'block';
+  }
 }
 
 function devBypass() {
@@ -946,16 +999,37 @@ async function logout() {
   } catch {}
   accessToken = null;
   sessionStorage.removeItem('access_token');
-  showGatekeeper();
+  showLogin();
   if (sessionCheckInterval) clearInterval(sessionCheckInterval);
   if (window.terminalManager) window.terminalManager.disconnect();
 }
 
 function showGatekeeper() {
-  const g = document.getElementById('gatekeeper');
+  const g = document.getElementById('login-screen');
   const d = document.getElementById('dashboard');
-  if (g) g.classList.add('active');
-  if (d) d.classList.remove('active');
+  if (g) {
+    g.classList.add('active');
+    g.style.display = 'flex';
+  }
+  if (d) {
+    d.classList.remove('active');
+    d.style.display = 'none';
+  }
+}
+
+function showLogin() {
+  debugLog('[showLogin] showing login screen');
+  const loginScreen = document.getElementById('login-screen');
+  const dashboard = document.getElementById('dashboard');
+  if (loginScreen) {
+    loginScreen.classList.add('active');
+    loginScreen.style.display = 'flex';
+  }
+  if (dashboard) {
+    dashboard.classList.remove('active');
+    dashboard.style.display = 'none';
+  }
+  accessToken = null;
 }
 
 function showDashboard() {
@@ -966,9 +1040,13 @@ function showDashboard() {
       debugLog('[showDashboard] CRITICAL: missing dashboard element');
       return;
     }
-    const gatekeeper = document.getElementById('gatekeeper');
-    if (gatekeeper) gatekeeper.classList.remove('active');
+    const loginScreen = document.getElementById('login-screen');
+    if (loginScreen) {
+      loginScreen.classList.remove('active');
+      loginScreen.style.display = 'none';
+    }
     dashboard.classList.add('active');
+    dashboard.style.display = 'flex';
     closeNavOverlay();
     initSudoUI();
     // Iframes self-init their own content; parent only handles global pulses
@@ -1921,21 +1999,24 @@ loginBtn.addEventListener('touchstart', login, { passive: true });
 
 const logoutBtn = document.getElementById('logout-btn');
 if (logoutBtn) logoutBtn.addEventListener('click', logout);
-document.getElementById('passphrase').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
-document.getElementById('totp').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
+document.getElementById('login-passphrase').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
+document.getElementById('login-totp').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
 
 // ─── Dev bypass: triple-tap the gate icon ────────────────────────────────────
 let gateTapCount = 0;
 let gateTapTimer = null;
-document.querySelector('.gate-icon').addEventListener('click', () => {
-  gateTapCount++;
-  if (gateTapTimer) clearTimeout(gateTapTimer);
-  gateTapTimer = setTimeout(() => { gateTapCount = 0; }, 800);
-  if (gateTapCount >= 3) {
-    gateTapCount = 0;
-    devBypass();
-  }
-});
+const gateIcon = document.querySelector('.gate-icon');
+if (gateIcon) {
+  gateIcon.addEventListener('click', () => {
+    gateTapCount++;
+    if (gateTapTimer) clearTimeout(gateTapTimer);
+    gateTapTimer = setTimeout(() => { gateTapCount = 0; }, 800);
+    if (gateTapCount >= 3) {
+      gateTapCount = 0;
+      devBypass();
+    }
+  });
+}
 
 // ─── PWA Install ─────────────────────────────────────────────────────────────
 let deferredPrompt = null;
@@ -1976,23 +2057,25 @@ function showIOSInstallInstructions() {
 // ─── Kimi Sessions ───────────────────────────────────────────────────────────
 async function loadKimiSessions() {
   const grid = document.getElementById('kimi-sessions-grid');
+  if (!grid) return;
   grid.innerHTML = '<div class="loading">Loading sessions...</div>';
   try {
     const sessions = await apiGet('/kimi/sessions');
-    if (!sessions.length) {
-      grid.innerHTML = '<p>No Kimi sessions found.</p>';
+    if (!Array.isArray(sessions) || !sessions.length) {
+      grid.innerHTML = '<p style="color:var(--text-dim)">No Kimi sessions found.</p>';
       return;
     }
     grid.innerHTML = sessions.map(s => {
-      const statusClass = s.status === 'active' ? 'status-active' : 'status-idle';
-      const statusText = s.status === 'active' ? '🟢 Active' : '⚪ Idle';
+      const status = s.status || 'idle';
+      const statusClass = status === 'active' ? 'status-active' : 'status-idle';
+      const statusText = status === 'active' ? '🟢 Active' : '⚪ Idle';
       const todoBar = s.todo_total > 0
         ? `<div class="todo-bar"><div class="todo-fill" style="width:${(s.todo_done/s.todo_total*100)}%"></div></div><small>${s.todo_done}/${s.todo_total}</small>`
         : '';
       return `
         <div class="card kimi-card" data-uuid="${escapeHtml(s.uuid)}">
           <h3>${escapeHtml(s.title)}</h3>
-          <p>${statusText} · ${escapeHtml(s.last_active)}</p>
+          <p class="${statusClass}">${statusText} · ${escapeHtml(s.last_active)}</p>
           ${todoBar}
           <div class="kimi-actions">
             <button class="btn-primary kimi-launch" data-uuid="${escapeHtml(s.uuid)}">Open Web UI</button>
@@ -2002,15 +2085,15 @@ async function loadKimiSessions() {
         </div>
       `;
     }).join('');
-    // Event delegation for Kimi cards
     grid.querySelectorAll('.kimi-launch').forEach(btn => {
       btn.addEventListener('click', () => launchKimi(btn.dataset.uuid));
     });
     grid.querySelectorAll('.kimi-terminal').forEach(btn => {
       btn.addEventListener('click', () => openKimiInTerminal(btn.dataset.uuid));
     });
-  } catch {
-    grid.innerHTML = '<p>Failed to load Kimi sessions.</p>';
+  } catch (e) {
+    grid.innerHTML = '<p style="color:var(--danger)">Host bridge offline — Kimi sessions unavailable.<br><small>Check <code>host-bridge.py</code> status.</small></p>';
+    debugLog('[kimi] load failed: ' + e.message);
   }
 }
 
@@ -2138,3 +2221,67 @@ setTimeout(() => {
   const activePanel = document.querySelector('.tab-panel.active');
   if (activePanel) ensureTabScripts(activePanel.id);
 }, 200);
+
+// ─── Marketing Asset Capture Helpers ─────────────────────────────────────────
+// Auto-activated by URL hash for screenshot/GIF generation. No-op for normal use.
+(function() {
+  const hash = location.hash.slice(1);
+  if (!hash) return;
+  const map = {
+    'desktop': () => setTimeout(() => toggleDesktopMode(true), 1200),
+    'tab-terminal': () => setTimeout(() => document.querySelector('.nav-tab[data-tab="terminal"]')?.click(), 800),
+    'tab-system': () => setTimeout(() => document.querySelector('.nav-tab[data-tab="system"]')?.click(), 800),
+    'tab-notes': () => setTimeout(() => document.querySelector('.nav-tab[data-tab="notes"]')?.click(), 800),
+    'sudo': () => setTimeout(() => { const m = document.getElementById('sudo-modal'); if(m) { m.style.display='flex'; m.style.alignItems='center'; m.style.justifyContent='center'; } }, 800),
+  };
+  if (map[hash]) map[hash]();
+})();
+// Theme hash helpers for asset capture
+(function() {
+  const hash = location.hash.slice(1);
+  if (hash.startsWith('theme-')) {
+    const themeId = hash.replace('theme-', '');
+    setTimeout(() => {
+      const t = PRESET_THEMES.find(x => x.id === themeId);
+      if (t) setTheme(t);
+    }, 1000);
+  }
+})();
+// GIF keyframe helpers
+(function() {
+  const hash = location.hash.slice(1);
+  if (hash === 'wm-drag') {
+    setTimeout(() => {
+      const win = document.querySelector('.app-window');
+      if (win) { win.style.transform = 'translate3d(200px, 100px, 0)'; win.dataset.posX='200'; win.dataset.posY='100'; }
+    }, 1500);
+  }
+  if (hash === 'wm-minimize') {
+    setTimeout(() => {
+      const win = document.querySelector('.app-window');
+      if (win) { win.classList.add('minimized'); }
+    }, 1500);
+  }
+  if (hash === 'wm-maximize') {
+    setTimeout(() => {
+      const win = document.querySelector('.app-window');
+      if (win) { win.classList.add('maximized'); }
+    }, 1500);
+  }
+  if (hash === 'wm-close') {
+    setTimeout(() => {
+      const win = document.querySelector('.app-window');
+      if (win) { win.style.display = 'none'; }
+    }, 1500);
+  }
+  if (hash === 'terminal-connected') {
+    setTimeout(() => {
+      const status = document.getElementById('terminal-status');
+      if (status) status.textContent = 'Connected';
+      const btn = document.getElementById('terminal-connect');
+      if (btn) btn.textContent = 'Disconnect';
+      const container = document.getElementById('terminal-container');
+      if (container) container.innerHTML = '<div style="padding:12px;font-family:monospace;font-size:13px;color:#0f0;background:#0a0f0d;line-height:1.5;"><div style="color:#888;">$ docker ps</div><div>CONTAINER ID  IMAGE   STATUS   PORTS</div><div style="color:#fff;">a1b2c3d4e5f6  nginx   Up 2h    80/tcp</div><div style="color:#fff;">g7h8i9j0k1l2  redis   Up 5h    6379/tcp</div><div style="margin-top:8px;color:#0ff;">$ _</div></div>';
+    }, 1500);
+  }
+})();

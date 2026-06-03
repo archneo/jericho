@@ -152,7 +152,8 @@ def launch_session(uuid: str):
     )
     conn.commit()
     conn.close()
-    return {"url": f"http://YOUR_TAILSCALE_IP:{port}", "token": token, "port": port, "pid": proc.pid}
+    ts_ip = os.environ.get("TAILSCALE_IP", "127.0.0.1")
+    return {"url": f"http://{ts_ip}:{port}", "token": token, "port": port, "pid": proc.pid}
 
 
 @app.post("/stop/{port}")

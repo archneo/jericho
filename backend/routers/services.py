@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import socket
 import subprocess
@@ -9,10 +10,19 @@ from fastapi import APIRouter, Request, HTTPException, status
 
 from auth_jwt import verify_token
 from cache import cached
-from config import LOCALHOST_IPS
 from deps import require_auth
 
 router = APIRouter()
+
+
+def _is_local_ip(ip: str) -> bool:
+    ip = ip.split("%")[0]
+    return (
+        ip.startswith("127.")
+        or ip == "::1"
+        or ip == "[::1]"
+        or ip in ("0.0.0.0", "*")
+    )
 
 
 def _fetch_local_services():
@@ -34,10 +44,10 @@ def _fetch_local_services():
             if not port.isdigit():
                 continue
             port = int(port)
-            if ip in LOCALHOST_IPS:
+            if _is_local_ip(ip):
                 url = f"http://127.0.0.1:{port}"
             else:
-                url = f"http://YOUR_TAILSCALE_IP:{port}"
+                url = f"http://{os.environ.get('TAILSCALE_IP', '127.0.0.1')}:{port}"
             services.append({"port": port, "ip": ip, "url": url, "process": ""})
     except Exception:
         pass

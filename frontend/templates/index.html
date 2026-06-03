@@ -330,10 +330,23 @@
 <body>
   <div id="app">
     <div id="desktop-bg" style="display:none;position:absolute;top:0;left:0;right:0;bottom:0;z-index:0;"></div>
-    <!-- Dashboard only — auth page removed for prototype -->
-    <section id="dashboard" class="view active">
+    <!-- Login Screen -->
+    <section id="login-screen" class="view active" style="flex-direction:column;align-items:center;justify-content:center;height:100vh;background:var(--bg);z-index:100;">
+      <div style="text-align:center;margin-bottom:24px;">
+        <div style="font-size:2.5rem;margin-bottom:8px;">⬡</div>
+        <h1 style="margin:0;font-size:1.5rem;">Jericho Command Center</h1>
+        <p style="color:var(--text-dim);margin:8px 0 0 0;">Zero-knowledge vault enabled</p>
+      </div>
+      <div style="width:280px;max-width:90vw;">
+        <input type="password" id="login-passphrase" placeholder="Passphrase" style="width:100%;padding:12px;margin-bottom:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:1rem;box-sizing:border-box;" autocomplete="current-password">
+        <input type="text" id="login-totp" placeholder="TOTP (6 digits)" inputmode="numeric" pattern="[0-9]*" maxlength="6" style="width:100%;padding:12px;margin-bottom:16px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:1rem;box-sizing:border-box;" autocomplete="one-time-code">
+        <button id="login-btn" style="width:100%;padding:12px;background:var(--accent);color:#000;border:none;border-radius:8px;font-size:1rem;font-weight:600;cursor:pointer;">Unlock</button>
+        <div id="login-error" style="color:var(--danger);margin-top:12px;font-size:0.85rem;text-align:center;display:none;"></div>
+      </div>
+    </section>
+    <section id="dashboard" class="view">
       <header class="topbar">
-        <div class="logo">⬡ Jericho <span class="build-badge">b38</span></div>
+        <div class="logo">⬡ Jericho <span class="build-badge">b40</span></div>
         <button id="fs-toggle" class="fs-toggle" aria-label="Toggle fullscreen">⛶</button>
         <div class="topbar-right">
           <a id="sudo-toggle" class="sudo-toggle" href="/" target="_blank" title="Sudo Mode" aria-label="Toggle sudo mode" style="text-decoration:none;display:inline-flex;align-items:center;cursor:pointer;">
@@ -363,7 +376,7 @@
           <div class="nav-version">
             <button class="nav-version-toggle" id="nav-version-toggle" aria-expanded="false">
               <span>⬡ Jericho</span>
-              <span class="build-badge">b38</span>
+              <span class="build-badge">b40</span>
               <span class="dev-tag">dev</span>
               <span class="version-chevron">▾</span>
             </button>
@@ -508,7 +521,7 @@
               var refreshBtn = document.getElementById('fb-refresh');
               if (!grid) return;
               var PREFIX = location.pathname.startsWith('/jericho/') ? '/jericho' : '';
-              var token = 'prototype-bypass';
+              var token = (typeof accessToken !== 'undefined' && accessToken) ? accessToken : '';  // Use global accessToken from jericho.js
               var currentPath = '/srv';
 
               function escapeHtml(str){

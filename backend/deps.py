@@ -9,15 +9,11 @@ from config import DB_PATH
 
 
 def require_auth(request: Request):
-    """Verify Bearer token or session; prototype bypass if neither present."""
+    """Verify Bearer token or session; raise 401 if neither present."""
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer "):
         return verify_token(auth_header[7:], "access")
-    try:
-        return verify_session(request)
-    except HTTPException:
-        # Prototype bypass: no auth required
-        return {"sub": "prototype", "client_type": "web", "tier": "free"}
+    return verify_session(request)
 
 
 def audit(event: str, ip: str, detail: str = ""):

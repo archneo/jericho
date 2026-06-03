@@ -14,7 +14,7 @@ TICKET_SECRET = os.environ.get("JERICHO_TICKET_SECRET", SECRET_KEY)
 
 # ─── Version ──────────────────────────────────────────────────────────────────
 JERICHO_VERSION = "0.10.0"
-JERICHO_BUILD = "39"
+JERICHO_BUILD = "40"
 CHANGELOG_PATH = DATA_DIR / "changelog.log"
 
 # ─── Networking ───────────────────────────────────────────────────────────────

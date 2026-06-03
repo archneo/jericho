@@ -163,7 +163,10 @@ func handleWebTerminal(w http.ResponseWriter, r *http.Request, expectedClientTyp
 
 	userHome := os.Getenv("JERICHO_USER_HOME")
 	if userHome == "" {
-		userHome = "/home/YOUR_USER"
+		userHome = os.Getenv("HOME")
+	}
+	if userHome == "" {
+		userHome = "/home/jericho"
 	}
 
 	var cmd *exec.Cmd

@@ -74,16 +74,6 @@ def mint_refresh_token(user_id: str) -> str:
 
 
 def verify_token(token: str, expected_type: str = "access") -> dict:
-    # Prototype bypass — accept hardcoded bypass token
-    if token == "prototype-bypass":
-        return {
-            "sub": "prototype",
-            "client_type": "web",
-            "tier": "free",
-            "attested": False,
-            "jti": "bypass",
-            "type": expected_type,
-        }
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
     except jwt.ExpiredSignatureError:
@@ -168,5 +158,4 @@ def get_auth_from_request(request: Request) -> dict:
         token = auth_header[7:]
         return verify_token(token, "access")
 
-    # Prototype bypass: no auth header required
-    return verify_token("prototype-bypass", "access")
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")

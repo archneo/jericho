@@ -49,6 +49,9 @@ Thumbs.db
 # ─── Docker ───────────────────────────────────────────────────────────────────
 .dockerignore
 
+# ─── Generated Config ─────────────────────────────────────────────────────────
+config/nginx/jericho.conf
+
 # ─── Upload-ready sub-bucket (managed separately) ─────────────────────────────
 # If you want to version the upload-ready folder too, remove this line.
 # upload-ready/
