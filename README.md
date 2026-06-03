@@ -68,6 +68,45 @@ jericho/
 
 ---
 
+## 🔐 Credential Management
+
+### First-Time Setup
+```bash
+# Generates .env with Argon2id hash, TOTP secret, and passwords
+bash scripts/setup.sh
+```
+
+### Rotate Passphrase + TOTP (Zero-Downtime)
+```bash
+# Only restarts jericho-api; ttyd + code-server keep running
+bash scripts/rotate-credentials.sh
+```
+
+**What happens:**
+1. Current `.env` is backed up to `.env.backup.<timestamp>`
+2. You enter a new passphrase (with confirmation)
+3. A new TOTP secret is generated
+4. Only the `jericho-api` container restarts (~1–2s)
+5. New TOTP secret + QR code URL are displayed for your Authenticator app
+
+### Recovery
+```bash
+# List backups
+ls -la .env.backup.*
+
+# Restore and restart
+cp .env.backup.1234567890 .env
+docker compose up -d jericho-api
+```
+
+### Security Notes
+- **Passphrase** is Argon2id-hashed (never stored plaintext)
+- **TOTP** uses RFC 6238 with 30-second windows
+- **`.env`** is gitignored — never commit it
+- **Backups** are also gitignored automatically
+
+---
+
 ## 📖 Docs
 
 - [Quick Start](docs/QUICKSTART.md) — 5-minute setup
