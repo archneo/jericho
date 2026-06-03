@@ -5,7 +5,6 @@ All models enforce input validation. Sensitive fields (encrypted data)
 are transmitted as base64 strings.
 """
 
-from datetime import datetime
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
@@ -45,8 +44,8 @@ class VaultUserResponse(BaseModel):
 
 class VaultSyncResponse(BaseModel):
     profile: VaultUserResponse
-    items: list["VaultItemResponse"]
-    folders: list["VaultFolderResponse"]
+    items: list[VaultItemResponse]
+    folders: list[VaultFolderResponse]
 
 
 class VaultItemCreate(BaseModel):

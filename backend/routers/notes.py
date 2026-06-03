@@ -1,13 +1,13 @@
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Request, UploadFile, File
+from fastapi import APIRouter, File, Request, UploadFile
+from utils.auth_jwt import verify_token
+from utils.deps import require_auth
+from utils.models import NoteSave
 
-from auth_jwt import verify_token
 from config import DB_PATH
-from deps import require_auth
-from models import NoteSave
 
 router = APIRouter()
 
@@ -53,11 +53,14 @@ async def save_note(request: Request, name: str, body: NoteSave):
         require_auth(request)
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    now = datetime.now(timezone.utc).isoformat()
-    c.execute("""
+    now = datetime.now(UTC).isoformat()
+    c.execute(
+        """
         INSERT INTO notes (name, content, updated) VALUES (?, ?, ?)
         ON CONFLICT(name) DO UPDATE SET content=excluded.content, updated=excluded.updated
-    """, (name, body.content, now))
+    """,
+        (name, body.content, now),
+    )
     conn.commit()
     conn.close()
     return {"ok": True}

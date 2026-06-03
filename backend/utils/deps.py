@@ -1,10 +1,10 @@
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from fastapi import HTTPException, Request, status
+from fastapi import Request
+from utils.auth import verify_session
+from utils.auth_jwt import verify_token
 
-from auth import verify_session
-from auth_jwt import verify_token
 from config import DB_PATH
 
 
@@ -21,7 +21,7 @@ def audit(event: str, ip: str, detail: str = ""):
     c = conn.cursor()
     c.execute(
         "INSERT INTO audit (ts, event, ip, detail) VALUES (?, ?, ?, ?)",
-        (datetime.now(timezone.utc).isoformat(), event, ip, detail),
+        (datetime.now(UTC).isoformat(), event, ip, detail),
     )
     conn.commit()
     conn.close()

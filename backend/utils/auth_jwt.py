@@ -2,11 +2,11 @@
 import os
 import secrets
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import jwt
-from fastapi import Request, HTTPException, status
+from fastapi import HTTPException, Request, status
 
 DATA_DIR = Path("/data")
 DB_PATH = DATA_DIR / "jericho.db"
@@ -35,8 +35,10 @@ def init_jwt_db():
 init_jwt_db()
 
 
-def mint_access_token(user_id: str, client_type: str = "web", tier: str = "free", attested: bool = False) -> str:
-    now = datetime.now(timezone.utc)
+def mint_access_token(
+    user_id: str, client_type: str = "web", tier: str = "free", attested: bool = False
+) -> str:
+    now = datetime.now(UTC)
     jti = secrets.token_urlsafe(16)
     payload = {
         "sub": user_id,
@@ -52,7 +54,7 @@ def mint_access_token(user_id: str, client_type: str = "web", tier: str = "free"
 
 
 def mint_refresh_token(user_id: str) -> str:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     jti = secrets.token_urlsafe(16)
     expires = now + REFRESH_TTL
     payload = {
@@ -98,7 +100,9 @@ def verify_refresh_token(token: str) -> dict:
     conn.close()
 
     if not row or row[0]:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token revoked")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token revoked"
+        )
 
     return payload
 
@@ -121,7 +125,7 @@ def revoke_all_user_tokens(user_id: str):
 
 
 def mint_terminal_ticket(user_id: str, client_type: str, tier: str, attested: bool) -> str:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     jti = secrets.token_urlsafe(16)
     payload = {
         "sub": user_id,
@@ -138,8 +142,9 @@ def mint_terminal_ticket(user_id: str, client_type: str, tier: str, attested: bo
 
 SUDO_TTL = timedelta(minutes=2)
 
+
 def mint_sudo_ticket(user_id: str) -> str:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     jti = secrets.token_urlsafe(16)
     payload = {
         "sub": user_id,

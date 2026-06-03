@@ -1,14 +1,12 @@
 import os
 import secrets
 import time
-from datetime import datetime, timedelta
-from typing import Optional
 
 import pyotp
 from argon2 import PasswordHasher
 from argon2.exceptions import VerifyMismatchError
-from fastapi import Request, HTTPException, status
-from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+from fastapi import HTTPException, Request, status
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 ph = PasswordHasher(time_cost=3, memory_cost=65536, parallelism=1, hash_len=32, salt_len=16)
 serializer = URLSafeTimedSerializer(os.environ.get("JERICHO_SECRET_KEY", secrets.token_hex(32)))

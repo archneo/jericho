@@ -1,19 +1,19 @@
-from fastapi import APIRouter, Request, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import JSONResponse
-
-from auth import verify_passphrase, verify_totp, create_session
-from auth_jwt import (
+from utils.auth import create_session, verify_passphrase, verify_totp
+from utils.auth_jwt import (
     mint_access_token,
     mint_refresh_token,
-    verify_token,
-    verify_refresh_token,
-    rotate_refresh_token,
     revoke_all_user_tokens,
+    rotate_refresh_token,
+    verify_refresh_token,
+    verify_token,
 )
-from capabilities import detect_client_type, get_capabilities
+from utils.capabilities import detect_client_type, get_capabilities
+from utils.deps import audit
+from utils.models import LoginRequest
+
 from config import PASSPHRASE_HASH, TOTP_SECRET
-from deps import audit
-from models import LoginRequest
 
 router = APIRouter()
 
@@ -36,13 +36,15 @@ async def login(request: Request, data: LoginRequest):
 
     audit("login_success", ip, f"client_type={client_type}")
 
-    resp = JSONResponse({
-        "ok": True,
-        "access_token": access_token,
-        "client_type": client_type,
-        "tier": "free",
-        "capabilities": get_capabilities(client_type, "free"),
-    })
+    resp = JSONResponse(
+        {
+            "ok": True,
+            "access_token": access_token,
+            "client_type": client_type,
+            "tier": "free",
+            "capabilities": get_capabilities(client_type, "free"),
+        }
+    )
     secure_cookie = request.url.scheme == "https"
     resp.set_cookie(
         key="jericho_refresh",
@@ -93,10 +95,12 @@ async def refresh(request: Request):
         old_jti = payload["jti"]
         new_refresh = rotate_refresh_token(old_jti, user_id)
         new_access = mint_access_token(user_id)
-        resp = JSONResponse({
-            "ok": True,
-            "access_token": new_access,
-        })
+        resp = JSONResponse(
+            {
+                "ok": True,
+                "access_token": new_access,
+            }
+        )
         secure_cookie = request.url.scheme == "https"
         resp.set_cookie(
             key="jericho_refresh",
@@ -108,7 +112,9 @@ async def refresh(request: Request):
         )
         return resp
     except HTTPException:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token"
+        )
 
 
 async def _me_handler(request: Request):
@@ -129,7 +135,8 @@ async def _me_handler(request: Request):
         except HTTPException:
             pass
     try:
-        from auth import verify_session
+        from utils.auth import verify_session
+
         verify_session(request)
         return {"ok": True, "client_type": "web", "tier": "free"}
     except HTTPException:

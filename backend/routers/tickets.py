@@ -1,6 +1,5 @@
-from fastapi import APIRouter, Request, HTTPException, status
-
-from auth_jwt import verify_token, mint_terminal_ticket
+from fastapi import APIRouter, HTTPException, Request, status
+from utils.auth_jwt import mint_terminal_ticket, verify_token
 
 router = APIRouter()
 

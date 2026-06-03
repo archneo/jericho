@@ -1,10 +1,10 @@
 import sqlite3
 
 from fastapi import APIRouter, Request
+from utils.auth_jwt import verify_token
+from utils.deps import require_auth
 
-from auth_jwt import verify_token
 from config import DB_PATH
-from deps import require_auth
 
 router = APIRouter()
 

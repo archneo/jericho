@@ -1,16 +1,12 @@
 import base64
-import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Request, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
 from fastapi.responses import FileResponse
-
-from auth_jwt import verify_token
-from config import DB_PATH
-from deps import require_auth
-from worker import get_cached_dir, cache_dir
+from utils.deps import require_auth
+from worker import cache_dir, get_cached_dir
 
 router = APIRouter()
 
@@ -45,13 +41,15 @@ async def list_projects(request: Request, path: str = "/srv"):
             if name.startswith("."):
                 continue
             stat = entry.stat()
-            entries.append({
-                "name": name,
-                "path": str(entry),
-                "type": "directory" if entry.is_dir() else "file",
-                "size": stat.st_size if entry.is_file() else None,
-                "modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
-            })
+            entries.append(
+                {
+                    "name": name,
+                    "path": str(entry),
+                    "type": "directory" if entry.is_dir() else "file",
+                    "size": stat.st_size if entry.is_file() else None,
+                    "modified": datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat(),
+                }
+            )
     except PermissionError:
         pass
 
@@ -95,8 +93,12 @@ async def preview_file(request: Request, path: str):
         with open(target, "rb") as f:
             data = f.read()
         mime = {
-            ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-            ".gif": "image/gif", ".webp": "image/webp", ".svg": "image/svg+xml",
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".gif": "image/gif",
+            ".webp": "image/webp",
+            ".svg": "image/svg+xml",
             ".bmp": "image/bmp",
         }.get(Path(name).suffix, "application/octet-stream")
         b64 = base64.b64encode(data).decode("utf-8")
@@ -108,36 +110,100 @@ async def preview_file(request: Request, path: str):
         }
 
     text_exts = (
-        ".txt", ".md", ".markdown", ".json", ".yaml", ".yml", ".toml",
-        ".py", ".js", ".ts", ".jsx", ".tsx", ".html", ".css", ".scss",
-        ".sh", ".bash", ".zsh", ".fish", ".ps1",
-        ".go", ".rs", ".java", ".kt", ".scala", ".clj",
-        ".c", ".cpp", ".h", ".hpp", ".cs", ".swift",
-        ".rb", ".php", ".pl", ".pm", ".lua", ".r",
-        ".sql", ".graphql", ".prisma",
-        ".dockerfile", ".nginx", ".conf", ".cfg", ".ini",
-        ".log", ".csv", ".tsv",
-        ".xml", ".svg",
+        ".txt",
+        ".md",
+        ".markdown",
+        ".json",
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".py",
+        ".js",
+        ".ts",
+        ".jsx",
+        ".tsx",
+        ".html",
+        ".css",
+        ".scss",
+        ".sh",
+        ".bash",
+        ".zsh",
+        ".fish",
+        ".ps1",
+        ".go",
+        ".rs",
+        ".java",
+        ".kt",
+        ".scala",
+        ".clj",
+        ".c",
+        ".cpp",
+        ".h",
+        ".hpp",
+        ".cs",
+        ".swift",
+        ".rb",
+        ".php",
+        ".pl",
+        ".pm",
+        ".lua",
+        ".r",
+        ".sql",
+        ".graphql",
+        ".prisma",
+        ".dockerfile",
+        ".nginx",
+        ".conf",
+        ".cfg",
+        ".ini",
+        ".log",
+        ".csv",
+        ".tsv",
+        ".xml",
+        ".svg",
     )
     if name.endswith(text_exts) or size < 4096:
         try:
-            with open(target, "r", encoding="utf-8", errors="replace") as f:
+            with open(target, encoding="utf-8", errors="replace") as f:
                 content = f.read(MAX_PREVIEW)
-            ftype = "markdown" if name.endswith((".md", ".markdown")) else (
-                "json" if name.endswith(".json") else (
-                    "code" if name.endswith(text_exts) else "text"
+            ftype = (
+                "markdown"
+                if name.endswith((".md", ".markdown"))
+                else (
+                    "json"
+                    if name.endswith(".json")
+                    else ("code" if name.endswith(text_exts) else "text")
                 )
             )
             language = {
-                ".py": "python", ".js": "javascript", ".ts": "typescript",
-                ".sh": "bash", ".go": "go", ".rs": "rust", ".java": "java",
-                ".c": "c", ".cpp": "cpp", ".h": "c", ".hpp": "cpp",
-                ".php": "php", ".rb": "ruby", ".sql": "sql",
-                ".html": "html", ".css": "css", ".scss": "scss",
-                ".yaml": "yaml", ".yml": "yaml", ".json": "json",
-                ".xml": "xml", ".nginx": "nginx", ".conf": "ini",
-                ".dockerfile": "dockerfile", ".md": "markdown",
-                ".log": "log", ".csv": "csv", ".txt": "text",
+                ".py": "python",
+                ".js": "javascript",
+                ".ts": "typescript",
+                ".sh": "bash",
+                ".go": "go",
+                ".rs": "rust",
+                ".java": "java",
+                ".c": "c",
+                ".cpp": "cpp",
+                ".h": "c",
+                ".hpp": "cpp",
+                ".php": "php",
+                ".rb": "ruby",
+                ".sql": "sql",
+                ".html": "html",
+                ".css": "css",
+                ".scss": "scss",
+                ".yaml": "yaml",
+                ".yml": "yaml",
+                ".json": "json",
+                ".xml": "xml",
+                ".nginx": "nginx",
+                ".conf": "ini",
+                ".dockerfile": "dockerfile",
+                ".md": "markdown",
+                ".log": "log",
+                ".csv": "csv",
+                ".txt": "text",
             }.get(Path(name).suffix, "")
             return {
                 "name": target.name,

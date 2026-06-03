@@ -4,12 +4,12 @@ import urllib.request
 from pathlib import Path
 
 import yaml
-from fastapi import APIRouter, Request, HTTPException, status
+from fastapi import APIRouter, HTTPException, Request, status
+from utils.auth_jwt import verify_token
+from utils.cache import cached
+from utils.deps import audit, require_auth
 
-from auth_jwt import verify_token
-from cache import cached
 from config import HOST_BRIDGE_URL
-from deps import audit, require_auth
 
 router = APIRouter()
 
@@ -18,7 +18,7 @@ PLATFORMS_YAML = Path("/srv/jericho/agent-platforms.yaml")
 
 def load_platforms():
     try:
-        data = yaml.safe_load(open(PLATFORMS_YAML, "r"))
+        data = yaml.safe_load(open(PLATFORMS_YAML))
         return data.get("platforms", [])
     except Exception:
         return []
@@ -36,15 +36,17 @@ def _fetch_platforms():
                 health_status = resp.status
         except Exception:
             health_status = 0
-        active.append({
-            "id": p["id"],
-            "name": p["name"],
-            "icon": p["icon"],
-            "description": p["description"],
-            "category": p.get("category", "general"),
-            "status": "online" if health_status == 200 else "offline",
-            "url": p["proxy_path"],
-        })
+        active.append(
+            {
+                "id": p["id"],
+                "name": p["name"],
+                "icon": p["icon"],
+                "description": p["description"],
+                "category": p.get("category", "general"),
+                "status": "online" if health_status == 200 else "offline",
+                "url": p["proxy_path"],
+            }
+        )
     return active
 
 
@@ -63,8 +65,18 @@ async def kimi_sessions(request: Request):
         require_auth(request)
     try:
         result = subprocess.run(
-            ["curl", "-s", "-w", "\n%{http_code}", "--connect-timeout", "3", f"{HOST_BRIDGE_URL}/sessions"],
-            capture_output=True, text=True, timeout=5,
+            [
+                "curl",
+                "-s",
+                "-w",
+                "\n%{http_code}",
+                "--connect-timeout",
+                "3",
+                f"{HOST_BRIDGE_URL}/sessions",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         lines = result.stdout.strip().split("\n") if result.stdout else []
         if len(lines) >= 2:
@@ -90,8 +102,20 @@ async def kimi_launch(request: Request, uuid: str):
     ip = request.client.host if request.client else "unknown"
     try:
         result = subprocess.run(
-            ["curl", "-s", "-w", "\n%{http_code}", "-X", "POST", "--connect-timeout", "3", f"{HOST_BRIDGE_URL}/launch/{uuid}"],
-            capture_output=True, text=True, timeout=10,
+            [
+                "curl",
+                "-s",
+                "-w",
+                "\n%{http_code}",
+                "-X",
+                "POST",
+                "--connect-timeout",
+                "3",
+                f"{HOST_BRIDGE_URL}/launch/{uuid}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
         lines = result.stdout.strip().split("\n") if result.stdout else []
         if len(lines) >= 2:
@@ -120,8 +144,20 @@ async def kimi_stop(request: Request, port: int):
     ip = request.client.host if request.client else "unknown"
     try:
         result = subprocess.run(
-            ["curl", "-s", "-w", "\n%{http_code}", "-X", "POST", "--connect-timeout", "3", f"{HOST_BRIDGE_URL}/stop/{port}"],
-            capture_output=True, text=True, timeout=5,
+            [
+                "curl",
+                "-s",
+                "-w",
+                "\n%{http_code}",
+                "-X",
+                "POST",
+                "--connect-timeout",
+                "3",
+                f"{HOST_BRIDGE_URL}/stop/{port}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         lines = result.stdout.strip().split("\n") if result.stdout else []
         if len(lines) >= 2:

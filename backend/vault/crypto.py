@@ -16,15 +16,13 @@ import base64
 import hashlib
 import hmac
 import os
-import secrets
 import uuid
 from typing import Literal
 
-from argon2 import PasswordHasher
 from argon2.low_level import Type
+from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-from cryptography.hazmat.primitives import hashes
 
 # ─── Constants ──────────────────────────────────────────────────────────────────
 KDF_TYPE_DEFAULT = "pbkdf2"
@@ -36,7 +34,7 @@ ENC_KEY_INFO = b"enc"
 MAC_KEY_INFO = b"mac"
 
 SYMMETRIC_KEY_SIZE = 64  # 512 bits
-MASTER_KEY_SIZE = 32     # 256 bits
+MASTER_KEY_SIZE = 32  # 256 bits
 
 # Encrypted string format version
 ENCRYPTED_VERSION = "2"

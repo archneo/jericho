@@ -1,5 +1,5 @@
 # capabilities.py — client-type + tier → capability matrix
-from fastapi import Request, HTTPException
+from fastapi import HTTPException, Request, status
 
 CAPABILITIES = {
     "web": {
@@ -69,7 +69,12 @@ def require_capability(capability: str):
             tier = getattr(request.state, "tier", "free")
             caps = get_capabilities(client_type, tier)
             if not caps.get(capability, False):
-                raise HTTPException(status_code=status.HTTP_402_PAYMENT_REQUIRED, detail=f"{capability} requires subscription upgrade")
+                raise HTTPException(
+                    status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                    detail=f"{capability} requires subscription upgrade",
+                )
             return await endpoint(request, *args, **kwargs)
+
         return wrapper
+
     return decorator
