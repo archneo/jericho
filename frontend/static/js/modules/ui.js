@@ -27,6 +27,23 @@
     }
   };
 
+  // Shield button opens terminal instead of dashboard
+  const sudoToggleBtn = document.getElementById('sudo-toggle');
+  if (sudoToggleBtn) {
+    sudoToggleBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      // Switch to terminal tab
+      document.querySelectorAll('.nav-tab').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      const terminalTab = document.querySelector('.nav-tab[data-tab="terminal"]');
+      const terminalPanel = document.getElementById('tab-terminal');
+      if (terminalTab) terminalTab.classList.add('active');
+      if (terminalPanel) terminalPanel.classList.add('active');
+      ensureTabScripts('tab-terminal');
+      closeNavOverlay();
+    });
+  }
+
   window.debugLog = function(msg) {
     const line = new Date().toLocaleTimeString() + ' ' + msg;
     debugLines.push(line);

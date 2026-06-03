@@ -145,10 +145,8 @@ function initCharts() {
 
 async function loadSystemStats() {
   debugLog('[system] fetching stats from ' + MONITOR_BASE + '/stats');
-  const headers = {};
-  if (accessToken) headers['Authorization'] = 'Bearer ' + accessToken;
   try {
-    const res = await fetch(MONITOR_BASE + '/stats', { headers });
+    const res = await fetch(MONITOR_BASE + '/stats');
     debugLog('[system] stats response status: ' + res.status);
     if (!res.ok) {
       debugLog('[system] stats fetch failed: HTTP ' + res.status);
@@ -257,10 +255,8 @@ function updateSystemUI(data) {
 }
 
 async function loadSystemProcesses() {
-  const headers = {};
-  if (accessToken) headers['Authorization'] = 'Bearer ' + accessToken;
   try {
-    const res = await fetch(MONITOR_BASE + '/processes?limit=20', { headers });
+    const res = await fetch(MONITOR_BASE + '/processes?limit=20');
     if (!res.ok) return;
     const data = await res.json();
     const tbody = document.getElementById('sys-processes');

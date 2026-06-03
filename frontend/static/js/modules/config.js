@@ -20,7 +20,7 @@
   window.desktopMode = false;
   window._windowZ = 10;
 
-  window.currentBrowsePath = '/srv';
+  window.currentBrowsePath = '/';
   window.fbScrollPositions = {};
   window._fbLoading = false;
   window._fbPollTimer = null;
