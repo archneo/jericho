@@ -891,7 +891,7 @@ async function apiPostForm(url, formData) {
 async function tryRefresh() {
   try {
     debugLog('[refresh] trying cookie refresh...');
-    const res = await fetch('api/auth/refresh', {
+    const res = await fetch(PREFIX + '/api/auth/refresh', {
       method: 'POST',
       credentials: 'same-origin',
     });
@@ -941,7 +941,7 @@ async function login() {
 
   debugLog('[login] authenticating...');
   try {
-    const res = await fetch(API_BASE + 'auth/login', {
+    const res = await fetch(PREFIX + '/api/auth/login', {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
@@ -991,7 +991,7 @@ function devBypass() {
 
 async function logout() {
   try {
-    await fetch('api/auth/logout', {
+    await fetch(PREFIX + '/api/auth/logout', {
       method: 'POST',
       headers: getAuthHeaders(),
       credentials: 'same-origin',
