@@ -1,4 +1,5 @@
 import base64
+import binascii
 import sqlite3
 from datetime import UTC, datetime
 
@@ -43,7 +44,13 @@ def vault_register(req: VaultUserCreate):
     now = datetime.now(UTC).isoformat()
 
     # Server-side hash the client-provided password hash with a random salt
-    client_hash_bytes = base64.b64decode(req.master_password_hash)
+    try:
+        client_hash_bytes = base64.b64decode(req.master_password_hash)
+    except (binascii.Error, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid base64 encoding for master_password_hash"
+        )
     stored_hash, _ = hash_password_for_storage(client_hash_bytes)
 
     # Generate a random symmetric key for this user
@@ -126,7 +133,13 @@ def vault_setup(req: VaultSetupRequest):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
     user_id, stored_hash = row
-    client_hash_bytes = base64.b64decode(req.master_password_hash)
+    try:
+        client_hash_bytes = base64.b64decode(req.master_password_hash)
+    except (binascii.Error, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid base64 encoding for master_password_hash"
+        )
     if not verify_password_against_storage(client_hash_bytes, stored_hash):
         conn.close()
         raise HTTPException(
@@ -184,7 +197,13 @@ def vault_login(req: VaultUnlockRequest):
         updated_at,
     ) = row
 
-    client_hash_bytes = base64.b64decode(req.master_password_hash)
+    try:
+        client_hash_bytes = base64.b64decode(req.master_password_hash)
+    except (binascii.Error, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid base64 encoding for master_password_hash"
+        )
     if not verify_password_against_storage(client_hash_bytes, stored_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password"
