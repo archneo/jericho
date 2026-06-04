@@ -14,7 +14,7 @@ TICKET_SECRET = os.environ.get("JERICHO_TICKET_SECRET", SECRET_KEY)
 
 # ─── Version ──────────────────────────────────────────────────────────────────
 JERICHO_VERSION = "0.10.0"
-JERICHO_BUILD = "41"
+JERICHO_BUILD = "42"
 CHANGELOG_PATH = DATA_DIR / "changelog.log"
 
 # ─── Networking ───────────────────────────────────────────────────────────────
@@ -36,8 +36,13 @@ def _service_url(name: str, scheme: str = "http") -> str:
 
 AGENTD_URL = _service_url("agentd")
 SHELL_URL = _service_url("shell")
+MONITOR_URL = _service_url("monitor")
 HOST_BRIDGE_URL = os.environ.get("HOST_BRIDGE_URL", _service_url("host_bridge"))
 TERMINAL_BRIDGE_URL = _service_url("terminal_bridge")
+
+# ─── Public Hostname ──────────────────────────────────────────────────────────
+# Hostname used for cross-device Tailscale access (proxy URLs, deep links)
+JERICHO_PUBLIC_HOST = os.environ.get("JERICHO_PUBLIC_HOST", "")
 
 # ─── User / Bridge ────────────────────────────────────────────────────────────
 USER_HOME = os.environ.get("JERICHO_USER_HOME", "/home/YOUR_USER")

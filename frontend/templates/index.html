@@ -348,7 +348,7 @@
     </section>
     <section id="dashboard" class="view">
       <header class="topbar">
-        <div class="logo">⬡ Jericho <span class="build-badge">b41</span></div>
+        <div class="logo">⬡ Jericho <span class="build-badge">b42</span></div>
         <button id="fs-toggle" class="fs-toggle" aria-label="Toggle fullscreen">⛶</button>
         <div class="topbar-right">
           <a id="sudo-toggle" class="sudo-toggle" href="/" target="_blank" title="Sudo Mode" aria-label="Toggle sudo mode" style="text-decoration:none;display:inline-flex;align-items:center;cursor:pointer;">
@@ -373,6 +373,7 @@
           <button class="nav-tab" data-tab="code">📝 Code</button>
           <button class="nav-tab" data-tab="notes">📋 Notes</button>
           <button class="nav-tab" data-tab="capture">📸 Capture</button>
+          <button class="nav-tab" data-tab="settings">⚙️ Settings</button>
           <button class="nav-tab" id="nav-theme-btn">🎨 Themes</button>
           <button class="nav-tab" id="nav-logout">🚪 Logout</button>
           <div class="nav-version">
@@ -670,7 +671,7 @@
           </div>
           <div id="svc-local" class="svc-panel active">
             <table class="data-table">
-              <thead><tr><th>Port</th><th>URL</th><th>Process</th></tr></thead>
+              <thead><tr><th>Port</th><th>Access</th><th>Process</th></tr></thead>
               <tbody id="local-services-body"></tbody>
             </table>
           </div>
@@ -771,6 +772,49 @@
           <p id="upload-status"></p>
         </div>
 
+        <!-- Settings -->
+        <div id="tab-settings" class="tab-panel">
+          <h2>Settings</h2>
+          <div class="settings-section">
+            <h3>Notifications</h3>
+            <div class="setting-row" id="setting-push-row">
+              <label class="setting-label">
+                <span>Push Notifications</span>
+                <span class="pro-badge" id="badge-push">PRO</span>
+              </label>
+              <button id="btn-push-subscribe" class="btn-small" disabled>Subscribe</button>
+            </div>
+          </div>
+          <div class="settings-section">
+            <h3>Offline</h3>
+            <div class="setting-row" id="setting-offline-row">
+              <label class="setting-label">
+                <span>Offline Command Queue</span>
+                <span class="pro-badge" id="badge-offline">PRO</span>
+              </label>
+              <span class="setting-status" id="status-offline">Disabled</span>
+            </div>
+          </div>
+          <div class="settings-section">
+            <h3>Security</h3>
+            <div class="setting-row" id="setting-biometric-row">
+              <label class="setting-label">
+                <span>Biometric Unlock</span>
+                <span class="pro-badge" id="badge-biometric">PRO</span>
+              </label>
+              <span class="setting-status" id="status-biometric">Disabled</span>
+            </div>
+          </div>
+          <div class="settings-section">
+            <h3>About</h3>
+            <p style="color:var(--text-dim);font-size:13px;">
+              Jericho Command Center<br>
+              Build <span id="settings-build">41</span><br>
+              <span id="settings-tier">Free tier</span>
+            </p>
+          </div>
+        </div>
+
         <!-- Changelog (hidden from nav overlay, reachable via link) -->
         <div id="tab-changelog" class="tab-panel">
           <h2 style="margin:0 0 12px 0;">Changelog</h2>
@@ -822,7 +866,7 @@
     </div>
   </div>
 
-  <script>const BUILD_ID = '41';</script>
+  <script>const BUILD_ID = '42';</script>
   <script src="static/js/modules/config.js?v=40"></script>
   <script src="static/js/modules/api.js?v=40"></script>
   <script src="static/js/modules/auth.js?v=40"></script>

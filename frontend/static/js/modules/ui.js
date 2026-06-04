@@ -561,6 +561,99 @@
     applyDesktopMode(getDesktopMode());
   };
 
+  // ─── Settings & Pro Badges ──────────────────────────────────────────────────
+  window.renderSettings = function() {
+    const tier = capabilities.tier || 'free';
+    const isPro = tier === 'pro' || tier === 'team';
+
+    // Update build/tier display
+    const buildEl = document.getElementById('settings-build');
+    if (buildEl) buildEl.textContent = (typeof BUILD_ID !== 'undefined') ? BUILD_ID : '?';
+    const tierEl = document.getElementById('settings-tier');
+    if (tierEl) tierEl.textContent = tier.charAt(0).toUpperCase() + tier.slice(1) + ' tier';
+
+    // Show/hide Pro badges
+    document.querySelectorAll('.pro-badge').forEach(badge => {
+      if (isPro) badge.classList.add('hidden');
+      else badge.classList.remove('hidden');
+    });
+
+    // Push notifications button
+    const pushBtn = document.getElementById('btn-push-subscribe');
+    if (pushBtn) {
+      pushBtn.disabled = !isPro;
+      pushBtn.textContent = isPro ? 'Subscribe' : 'Upgrade to Pro';
+      pushBtn.onclick = isPro ? subscribePush : () => showUpgradeModal('push notifications');
+    }
+
+    // Offline queue status
+    const offlineStatus = document.getElementById('status-offline');
+    if (offlineStatus) {
+      offlineStatus.textContent = capabilities.offline_queue ? 'Enabled' : (isPro ? 'Disabled' : 'Pro required');
+    }
+
+    // Biometric status
+    const bioStatus = document.getElementById('status-biometric');
+    if (bioStatus) {
+      bioStatus.textContent = capabilities.biometric_unlock ? 'Enabled' : (isPro ? 'Disabled' : 'Pro required');
+    }
+  };
+
+  window.showUpgradeModal = function(feature) {
+    showToast(`Upgrade to Pro for $8/mo to unlock ${feature}. 14-day free trial.`, 'info', 5000);
+  };
+
+  // ─── Web Push ───────────────────────────────────────────────────────────────
+  window.subscribePush = async function() {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      showToast('Push notifications not supported in this browser', 'error');
+      return;
+    }
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        showToast('Notification permission denied', 'error');
+        return;
+      }
+      // Fetch VAPID public key
+      const keyRes = await fetch(PREFIX + '/api/web/push/vapid-public-key', { headers: getAuthHeaders() });
+      const keyData = await keyRes.json();
+      const subscription = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(keyData.public_key),
+      });
+      // Send subscription to server
+      const subRes = await fetch(PREFIX + '/api/web/push/subscribe', {
+        method: 'POST',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          endpoint: subscription.endpoint,
+          keys: {
+            p256dh: btoa(String.fromCharCode.apply(null, new Uint8Array(subscription.getKey('p256dh')))),
+            auth: btoa(String.fromCharCode.apply(null, new Uint8Array(subscription.getKey('auth')))),
+          },
+        }),
+      });
+      if (subRes.ok) {
+        showToast('Push notifications enabled!', 'success');
+        document.getElementById('btn-push-subscribe').textContent = 'Subscribed';
+      } else {
+        const err = await subRes.json().catch(() => ({}));
+        showToast(err.detail || 'Subscription failed', 'error');
+      }
+    } catch (e) {
+      showToast('Push setup failed: ' + e.message, 'error');
+    }
+  };
+
+  function urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
+    const rawData = atob(base64);
+    return Uint8Array.from([...rawData].map(char => char.charCodeAt(0)));
+  }
+
   window.handleOutsideTap = function(e) {
     const navOverlay = document.getElementById('nav-overlay');
     const navBtn = document.getElementById('nav-menu-btn');

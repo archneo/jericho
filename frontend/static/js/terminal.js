@@ -17,6 +17,12 @@ class TerminalManager {
     this.reconnectAttempts = 0;
     this.maxReconnectAttempts = 10;
     this.reconnectTimer = null;
+    // Circuit breaker states: CLOSED, OPEN, HALF_OPEN
+    this.circuitState = 'CLOSED';
+    this.circuitFailureCount = 0;
+    this.circuitFailureThreshold = 5;
+    this.circuitOpenDuration = 30000; // 30s cooldown
+    this.circuitTimer = null;
     this.heartbeatTimer = null;
     this.lastHeartbeat = 0;
     this.stickyMod = null;
@@ -179,6 +185,7 @@ class TerminalManager {
         this.connected = true;
         this.reconnectAttempts = 0;
         this.lastHeartbeat = Date.now();
+        this._circuitRecordSuccess();
         btn.textContent = 'Disconnect';
         btn.disabled = false;
         status.textContent = 'Connected';
@@ -236,6 +243,7 @@ class TerminalManager {
           this._beforeUnloadHandler = null;
         }
         if (e.code !== 1000 && e.code !== 1001) {
+          this._circuitRecordFailure();
           this.scheduleReconnect(opts);
         }
       };
@@ -276,6 +284,10 @@ class TerminalManager {
   }
 
   scheduleReconnect(opts) {
+    if (this.circuitState === 'OPEN') {
+      this.term.writeln('\r\n\x1b[31mService temporarily unavailable. Cooling down...\x1b[0m\r\n');
+      return;
+    }
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
       this.term.writeln('\r\n\x1b[31mMax reconnection attempts reached\x1b[0m\r\n');
       return;
@@ -285,6 +297,41 @@ class TerminalManager {
     const jitter = delay * (0.9 + Math.random() * 0.2);
     this.term.writeln(`\r\n\x1b[33mReconnecting in ${Math.round(jitter/1000)}s...\x1b[0m\r\n`);
     this.reconnectTimer = setTimeout(() => this.connect(opts), jitter);
+  }
+
+  // ─── Circuit Breaker ────────────────────────────────────────────────────────
+  _circuitRecordSuccess() {
+    if (this.circuitState === 'HALF_OPEN') {
+      this.circuitState = 'CLOSED';
+      this.circuitFailureCount = 0;
+      this.term.writeln('\r\n\x1b[32mCircuit closed — connection stable\x1b[0m\r\n');
+    } else if (this.circuitState === 'CLOSED') {
+      this.circuitFailureCount = 0;
+    }
+  }
+
+  _circuitRecordFailure() {
+    if (this.circuitState === 'HALF_OPEN') {
+      this.circuitState = 'OPEN';
+      this._circuitStartCooldown();
+      return;
+    }
+    this.circuitFailureCount++;
+    if (this.circuitFailureCount >= this.circuitFailureThreshold) {
+      this.circuitState = 'OPEN';
+      this._circuitStartCooldown();
+    }
+  }
+
+  _circuitStartCooldown() {
+    this.term.writeln(`\r\n\x1b[31mCircuit OPEN — too many failures. Cooling down for ${this.circuitOpenDuration/1000}s...\x1b[0m\r\n`);
+    if (this.circuitTimer) clearTimeout(this.circuitTimer);
+    this.circuitTimer = setTimeout(() => {
+      this.circuitState = 'HALF_OPEN';
+      this.circuitFailureCount = 0;
+      this.reconnectAttempts = 0;
+      this.term.writeln('\r\n\x1b[33mCircuit HALF-OPEN — attempting recovery...\x1b[0m\r\n');
+    }, this.circuitOpenDuration);
   }
 
   startHeartbeat() {

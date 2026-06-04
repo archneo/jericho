@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
+from routers.agents import router as agents_router
 from routers.audit import router as audit_router
 from routers.auth import router as auth_router
 from routers.commands import router as commands_router
@@ -14,17 +15,28 @@ from routers.files import router as files_router
 from routers.kimi import router as kimi_router
 from routers.native import router as native_router
 from routers.notes import router as notes_router
+from routers.push import router as push_router
 from routers.services import router as services_router
 from routers.sudo import router as sudo_router
 from routers.themes import router as themes_router
 from routers.tickets import router as tickets_router
 from routers.vault import init_vault_db
 from routers.vault import router as vault_router
-from utils.auth_jwt import verify_token
+from utils.auth_jwt import get_auth_from_request, verify_token
 from utils.cache import CachedStaticFiles
 from worker import start_background_tasks, stop_background_tasks
 
-from config import CHANGELOG_PATH, DB_PATH, JERICHO_BUILD, JERICHO_VERSION
+from config import (
+    AGENTD_URL,
+    CHANGELOG_PATH,
+    DB_PATH,
+    HOST_BRIDGE_URL,
+    JERICHO_BUILD,
+    JERICHO_VERSION,
+    MONITOR_URL,
+    SHELL_URL,
+    TERMINAL_BRIDGE_URL,
+)
 
 
 # ─── DB init ──────────────────────────────────────────────────────────────────
@@ -107,7 +119,12 @@ async def lifespan(app: FastAPI):
 
 
 # ─── FastAPI ──────────────────────────────────────────────────────────────────
-app = FastAPI(title="Jericho Command Center", lifespan=lifespan)
+app = FastAPI(
+    title="Jericho Command Center API",
+    description="Mobile-first PWA API for Linux server management and AI agent orchestration",
+    version=f"{JERICHO_VERSION}-b{JERICHO_BUILD}",
+    lifespan=lifespan,
+)
 
 app.mount("/static", CachedStaticFiles(directory="/app/static"), name="static")
 
@@ -161,9 +178,97 @@ async def index(request: Request):
     return HTMLResponse(content=html, headers=headers)
 
 
+# ─── Health Check ─────────────────────────────────────────────────────────────
+async def _check_subsystem_health(url: str) -> dict:
+    """Quick health probe against a subsystem."""
+    import aiohttp
+
+    try:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=3)) as session:
+            async with session.get(f"{url}/health") as resp:
+                if resp.status == 200:
+                    content_type = resp.headers.get("content-type", "")
+                    if "application/json" in content_type:
+                        data = await resp.json()
+                    else:
+                        data = {"text": await resp.text()}
+                    return {"status": "up", "detail": data}
+                return {"status": "down", "detail": f"HTTP {resp.status}"}
+    except Exception as exc:
+        return {"status": "unreachable", "detail": str(exc)}
+
+
+def _get_worker_health() -> dict:
+    """Read latest health records from worker's SQLite table."""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        c = conn.cursor()
+        c.execute(
+            "SELECT service, status, checked_at FROM service_health ORDER BY checked_at DESC"
+        )
+        rows = c.fetchall()
+        conn.close()
+        result = {}
+        seen = set()
+        for service, status, checked_at in rows:
+            if service not in seen:
+                result[service] = {"status": status, "checked_at": checked_at}
+                seen.add(service)
+        return result
+    except Exception:
+        return {}
+
+
 @app.get("/health")
 async def health():
-    return {"ok": True, "service": "jericho-api"}
+    """Granular health check exposing all subsystem statuses."""
+    subsystems = {
+        "agentd": await _check_subsystem_health(AGENTD_URL),
+        "shell": await _check_subsystem_health(SHELL_URL),
+        "monitor": await _check_subsystem_health(MONITOR_URL),
+        "terminal_bridge": await _check_subsystem_health(TERMINAL_BRIDGE_URL),
+        "host_bridge": await _check_subsystem_health(HOST_BRIDGE_URL),
+    }
+    # Merge worker health pulse data
+    worker_health = _get_worker_health()
+    for svc, record in worker_health.items():
+        if svc not in subsystems:
+            subsystems[svc] = record
+        else:
+            # Worker data may be more recent
+            subsystems[svc]["worker_status"] = record.get("status")
+            subsystems[svc]["worker_checked_at"] = record.get("checked_at")
+
+    all_up = all(
+        s.get("status") in ("up", "healthy")
+        for s in subsystems.values()
+    )
+
+    return {
+        "ok": all_up,
+        "service": "jericho-api",
+        "build": JERICHO_BUILD,
+        "version": JERICHO_VERSION,
+        "timestamp": datetime.now(UTC).isoformat(),
+        "subsystems": subsystems,
+    }
+
+
+# ─── Capabilities ─────────────────────────────────────────────────────────────
+@app.get("/api/web/capabilities")
+async def get_capabilities(request: Request):
+    """Return the authenticated user's capability matrix."""
+    from utils.capabilities import detect_client_type, get_capabilities
+
+    token_data = get_auth_from_request(request)
+    client_type = detect_client_type(request)
+    tier = token_data.get("tier", "free")
+    caps = get_capabilities(client_type, tier)
+    return {
+        "client_type": client_type,
+        "tier": tier,
+        "capabilities": caps,
+    }
 
 
 # ─── Routers ──────────────────────────────────────────────────────────────────
@@ -178,4 +283,6 @@ app.include_router(kimi_router)
 app.include_router(sudo_router)
 app.include_router(native_router)
 app.include_router(audit_router)
+app.include_router(agents_router)
+app.include_router(push_router)
 app.include_router(vault_router)

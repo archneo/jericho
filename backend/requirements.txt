@@ -13,3 +13,4 @@ webauthn
 pyyaml
 watchdog
 psutil
+pywebpush

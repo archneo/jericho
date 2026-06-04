@@ -113,6 +113,19 @@
 
   window.JERICHO_CHANGELOG = [
     {
+      version: 'Build 42', tag: '0.10.0', date: '2026-06-04',
+      changes: [
+        'Build 42: Secure Tailscale Service Gateway — authenticated proxy for cross-device service access',
+        'Build 42: Granular Health Check API — subsystem status for all 6 Jericho services',
+        'Build 42: WebSocket Circuit Breaker — OPEN/CLOSED/HALF_OPEN states with cooldown',
+        'Build 42: Freemium UI Gates — Pro badges on push notifications, offline queue, biometric unlock',
+        'Build 42: Web Push Notifications — VAPID-based PWA push with subscription management',
+        'Build 42: Agent Context Store — unified SQLite conversation persistence across sessions',
+        'Build 42: Command Validation API — shell service exposes /validate for cross-service safety',
+        'Build 42: Agent Sandbox Prototype — Docker-based isolation with seccomp + cap-drop',
+      ]
+    },
+    {
       version: 'Build 41', tag: '0.10.0', date: '2026-06-03',
       changes: [
         'Build 41: Terminal-bridge systemd service — created user service for WebSocket PTY',

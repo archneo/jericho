@@ -194,9 +194,39 @@
         if (s.ip === 'docker') {
           return `<tr><td colspan="2">🐳 ${escapeHtml(s.process)}</td><td>${escapeHtml(s.ports || '')}</td></tr>`;
         }
+        const proxyUrl = s.proxy_url || '';
+        const localUrl = s.local_url || '';
+        const tailscaleUrl = s.tailscale_url || '';
+        const hasProxy = proxyUrl.length > 0;
+        const hasTailscale = tailscaleUrl.length > 0 && s.accessible;
+
+        // Primary link: proxy URL (works from any Tailscale device via Jericho auth)
+        let accessHtml = '';
+        if (hasProxy) {
+          accessHtml += `<div class="svc-proxy-link">
+            <a href="${escapeHtml(proxyUrl)}" target="_blank" title="Authenticated proxy — works from any Tailscale device">
+              🔒 ${escapeHtml(proxyUrl)}
+            </a>
+          </div>`;
+        }
+        // Secondary links
+        const secondaries = [];
+        if (hasTailscale) {
+          secondaries.push(`<a href="${escapeHtml(tailscaleUrl)}" target="_blank" title="Direct Tailscale access">TS direct</a>`);
+        }
+        if (localUrl) {
+          secondaries.push(`<a href="${escapeHtml(localUrl)}" target="_blank" title="Local only — same machine">local</a>`);
+        }
+        if (secondaries.length) {
+          accessHtml += `<div class="svc-secondary-links">${secondaries.join(' · ')}</div>`;
+        }
+        if (!accessHtml) {
+          accessHtml = '<span style="color:var(--text-dim)">—</span>';
+        }
+
         return `<tr>
           <td>${s.port}</td>
-          <td><a href="${escapeHtml(s.url)}" target="_blank">${escapeHtml(s.url)}</a></td>
+          <td>${accessHtml}</td>
           <td>${escapeHtml(s.process)}</td>
         </tr>`;
       }).join('');

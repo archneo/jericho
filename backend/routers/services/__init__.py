@@ -2,4 +2,4 @@ from fastapi import APIRouter
 
 router = APIRouter()
 
-from . import docker, local, public, tailscale  # noqa: E402, F401
+from . import docker, local, proxy, public, tailscale  # noqa: E402, F401

@@ -6,12 +6,8 @@
     const refreshed = await tryRefresh();
     if (refreshed) {
       debugLog('[checkSession] session refreshed, loading dashboard');
-      capabilities = {
-        terminal: true, agent_control: true, file_browser: true,
-        push_notifications: false, offline_queue: false,
-        biometric_unlock: false, team_sharing: false, audit_logs: false
-      };
-      updateCapabilityBadge('free');
+      await refreshCapabilities();
+      updateCapabilityBadge(capabilities.tier || 'free');
       showDashboard();
       return;
     }
@@ -60,12 +56,8 @@
       if (totpInput) totpInput.value = '';
       if (errorEl) errorEl.style.display = 'none';
 
-      capabilities = {
-        terminal: true, agent_control: true, file_browser: true,
-        push_notifications: false, offline_queue: false,
-        biometric_unlock: false, team_sharing: false, audit_logs: false
-      };
-      updateCapabilityBadge('free');
+      await refreshCapabilities();
+      updateCapabilityBadge(capabilities.tier || 'free');
       showDashboard();
     } catch (e) {
       debugLog('[login] network/syntax error: ' + e.message);
@@ -137,12 +129,30 @@
       loadDockerPulse().catch(e => debugLog('[dashboard] docker error: ' + e.message));
       loadTailscalePulse().catch(e => debugLog('[dashboard] tailscale error: ' + e.message));
       loadFileBrowser(currentBrowsePath).catch(e => debugLog('[dashboard] filebrowser error: ' + e.message));
+      renderSettings();
       if (sessionCheckInterval) clearInterval(sessionCheckInterval);
       sessionCheckInterval = setInterval(() => {
         apiGet('/me').catch(e => debugLog('[sessionCheck] ' + e.message));
       }, 60000);
     } catch (e) {
       debugLog('[showDashboard] CRITICAL ERROR: ' + e.message);
+    }
+  };
+
+  window.refreshCapabilities = async function() {
+    try {
+      const res = await fetch(PREFIX + '/api/web/capabilities', {
+        headers: getAuthHeaders(),
+        credentials: 'same-origin',
+      });
+      if (res.ok) {
+        const data = await res.json();
+        capabilities = data.capabilities || {};
+        capabilities.tier = data.tier || 'free';
+        capabilities.client_type = data.client_type || 'web';
+      }
+    } catch (e) {
+      debugLog('[refreshCapabilities] failed: ' + e.message);
     }
   };
 

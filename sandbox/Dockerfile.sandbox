@@ -1,0 +1,21 @@
+# Dockerfile.sandbox — Minimal sandbox for AI agent execution
+# Runs with --read-only --tmpfs /tmp --cap-drop ALL for defense in depth
+FROM alpine:3.19
+
+RUN apk add --no-cache \
+    bash \
+    curl \
+    python3 \
+    py3-pip \
+    git \
+    jq \
+    && rm -rf /var/cache/apk/*
+
+# Create non-root user for agent execution
+RUN adduser -D -s /bin/bash agent
+
+WORKDIR /home/agent
+USER agent
+
+# Default: run bash (agent commands are piped in via stdin or exec)
+CMD ["/bin/bash", "-l"]
