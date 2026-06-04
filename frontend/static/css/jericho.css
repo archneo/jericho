@@ -751,6 +751,9 @@ html, body {
 .agent-state.idle {
   color: var(--text-dim);
 }
+.agent-state.active {
+  color: var(--success);
+}
 .agent-state.thinking {
   color: var(--warn);
   animation: pulse 1.5s infinite;

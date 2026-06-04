@@ -178,10 +178,12 @@ class TerminalManager {
       this.ws.onopen = () => {
         this.connected = true;
         this.reconnectAttempts = 0;
+        this.lastHeartbeat = Date.now();
         btn.textContent = 'Disconnect';
         btn.disabled = false;
         status.textContent = 'Connected';
         status.className = 'connected';
+        this.updateStateBadge('active');
         this.sendResize();
         this.startHeartbeat();
         // Flush pending input
@@ -228,6 +230,7 @@ class TerminalManager {
         btn.disabled = false;
         status.textContent = 'Disconnected';
         status.className = 'disconnected';
+        this.updateStateBadge('idle');
         if (this._beforeUnloadHandler) {
           window.removeEventListener('beforeunload', this._beforeUnloadHandler);
           this._beforeUnloadHandler = null;
@@ -269,6 +272,7 @@ class TerminalManager {
     document.getElementById('terminal-connect').textContent = 'Connect';
     document.getElementById('terminal-status').textContent = 'Disconnected';
     document.getElementById('terminal-status').className = 'disconnected';
+    this.updateStateBadge('idle');
   }
 
   scheduleReconnect(opts) {
@@ -313,6 +317,7 @@ class TerminalManager {
     const badge = document.getElementById('agent-state-badge');
     const labels = {
       idle: '● Idle',
+      active: '● Active',
       listening: '● Listening',
       thinking: '● Thinking',
       executing: '● Executing',
