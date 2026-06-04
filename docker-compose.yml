@@ -1,15 +1,15 @@
 services:
   jericho-api:
-    build: ./api
+    build: ./backend
     container_name: jericho-api
     network_mode: host
     command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "9001"]
     volumes:
-      - /srv/jericho/api:/app          # Live code mount — edits apply immediately
+      - ${INSTALL_DIR:-/srv/jericho}/api:/app          # Live code mount — edits apply immediately
       - /srv:/srv                      # File browser, uploads, data access
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /run/tailscale/tailscaled.sock:/run/tailscale/tailscaled.sock
-      - /home/archneo/.kimi/sessions:/home/archneo/.kimi/sessions:ro
+      - ${TAILSCALE_SOCK_PATH:-/run/tailscale/tailscaled.sock}:/run/tailscale/tailscaled.sock
+      - ${JERICHO_USER_HOME:-/home/archneo}/.kimi/sessions:${JERICHO_USER_HOME:-/home/archneo}/.kimi/sessions:ro
       - /proc:/host/proc:ro
       - jericho-data:/data
     environment:

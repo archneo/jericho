@@ -1,0 +1,17 @@
+[Unit]
+Description=Jericho Terminal Bridge (WebSocket PTY)
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=${INSTALL_DIR}/terminal-bridge
+Environment="JERICHO_SECRET_KEY=${JERICHO_SECRET_KEY}"
+Environment="JERICHO_USER_HOME=${JERICHO_USER_HOME}"
+ExecStart=${INSTALL_DIR}/terminal-bridge/terminal-bridge
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

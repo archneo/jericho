@@ -113,6 +113,15 @@
 
   window.JERICHO_CHANGELOG = [
     {
+      version: 'Build 41', tag: '0.10.0', date: '2026-06-03',
+      changes: [
+        'Build 41: Terminal-bridge systemd service — created user service for WebSocket PTY',
+        'Build 41: Fixed terminal card connection — end-to-end WS ticket auth now working',
+        'Build 41: Container image refresh and restart',
+        'Build 41: GitHub repo sanitization — removed hardcoded paths, added systemd templates',
+      ]
+    },
+    {
       version: 'Build 34', tag: '0.10.0', date: '2026-05-22',
       changes: [
         'Build 34: Changelog versioning fix — each build now shows unique Build N title',

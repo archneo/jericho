@@ -29,7 +29,17 @@ ph = argon2.PasswordHasher(time_cost=3, memory_cost=65536, parallelism=1, hash_l
 print(ph.hash('$PASSPHRASE'))
 ")
 
-  # Prompt for network config if not set
+  # Prompt for deployment config if not set
+  if [ -z "$JERICHO_USER" ]; then
+    echo "Enter the OS user that will run Jericho services (e.g., archneo):"
+    read JERICHO_USER
+  fi
+  if [ -z "$JERICHO_USER_HOME" ]; then
+    JERICHO_USER_HOME=$(eval echo "~$JERICHO_USER")
+  fi
+  if [ -z "$INSTALL_DIR" ]; then
+    INSTALL_DIR=/srv/jericho
+  fi
   if [ -z "$JERICHO_DOMAIN" ]; then
     echo "Enter your domain (e.g., trilokventures.org):"
     read JERICHO_DOMAIN
@@ -47,10 +57,12 @@ JERICHO_SECRET_KEY=$SECRET_KEY
 JERICHO_PASSPHRASE_HASH=$PASSPHRASE_HASH
 JERICHO_TOTP_SECRET=$TOTP_SECRET
 CODE_SERVER_PASSWORD=$CODE_PASSWORD
+JERICHO_USER=$JERICHO_USER
+JERICHO_USER_HOME=$JERICHO_USER_HOME
+INSTALL_DIR=$INSTALL_DIR
 JERICHO_DOMAIN=$JERICHO_DOMAIN
 TAILSCALE_IP=$TAILSCALE_IP
 TAILSCALE_SOCK_PATH=$TAILSCALE_SOCK_PATH
-JERICHO_USER_HOME=${JERICHO_USER_HOME:-$HOME}
 EOF
 
   echo "Generated .env file."
@@ -81,4 +93,23 @@ if [ -f config/nginx/jericho.conf.template ] && command -v envsubst >/dev/null 2
   echo "Generated config/nginx/jericho.conf"
 fi
 
-echo "Setup complete. Run: docker compose up -d --build"
+# Generate systemd services from templates
+if [ -d config/systemd ]; then
+  SYSTEMD_USER_DIR="${HOME}/.config/systemd/user"
+  mkdir -p "$SYSTEMD_USER_DIR"
+  for tmpl in config/systemd/*.service.template; do
+    [ -f "$tmpl" ] || continue
+    out="$SYSTEMD_USER_DIR/$(basename "$tmpl" .template)"
+    envsubst < "$tmpl" > "$out"
+    echo "Installed $out"
+  done
+  if command -v systemctl >/dev/null 2>&1; then
+    systemctl --user daemon-reload
+    echo "Run: systemctl --user enable --now jericho-{monitor,agentd,shell,host-bridge,terminal-bridge}"
+  fi
+fi
+
+echo "Setup complete."
+echo "Next steps:"
+echo "  1. docker compose up -d --build"
+echo "  2. systemctl --user enable --now jericho-monitor jericho-agentd jericho-shell jericho-host-bridge jericho-terminal-bridge"

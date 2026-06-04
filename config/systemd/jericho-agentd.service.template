@@ -1,0 +1,17 @@
+[Unit]
+Description=Jericho AgentD Microservice
+After=network.target
+
+[Service]
+Type=simple
+User=${JERICHO_USER}
+WorkingDirectory=${INSTALL_DIR}/agentd
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 ${INSTALL_DIR}/agentd/main.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -13,15 +13,100 @@ A mobile-first dashboard for managing Linux servers, Docker containers, AI agent
 cp .env.example .env
 # Edit .env with your secrets
 
-# 2. Setup (generates Argon2 hash, TOTP secret, passwords)
+# 2. Setup (generates Argon2 hash, TOTP secret, passwords, systemd units)
 bash scripts/setup.sh
 
-# 3. Start
+# 3. Start containers
 docker compose up -d --build
 
-# 4. Access
+# 4. Start host microservices
+systemctl --user enable --now jericho-monitor jericho-agentd jericho-shell jericho-host-bridge jericho-terminal-bridge
+
+# 5. Access
 # Tailscale: http://YOUR_TAILSCALE_IP:9000
 # Local:     http://localhost:9000
+```
+
+---
+
+## 🏗 Installation
+
+### Prerequisites
+- Linux host with systemd
+- Docker + Docker Compose
+- Python 3.14+ (for host microservices)
+- Go 1.22+ (to build terminal-bridge)
+- Nginx (for reverse proxy)
+
+### Step-by-Step
+
+```bash
+# 1. Clone and enter directory
+git clone <repo> /srv/jericho
+cd /srv/jericho
+
+# 2. Run interactive setup
+# This generates .env, nginx config, and systemd service files
+bash scripts/setup.sh
+
+# 3. Build the terminal-bridge binary
+cd bridge/terminal-bridge
+go build -o terminal-bridge
+cd ../..
+
+# 4. Start Docker services
+docker compose up -d --build
+
+# 5. Start host microservices (systemd user services)
+systemctl --user enable --now jericho-monitor
+systemctl --user enable --now jericho-agentd
+systemctl --user enable --now jericho-shell
+systemctl --user enable --now jericho-host-bridge
+systemctl --user enable --now jericho-terminal-bridge
+
+# 6. Verify health
+curl -fsS http://localhost:9001/health
+curl -fsS http://localhost:9002/health
+curl -fsS http://localhost:9998/health
+curl -fsS http://localhost:9999/health
+```
+
+### Directory Layout After Install
+```
+/srv/jericho/
+├── api/                  # Runtime backend + frontend (live mount)
+├── monitor/              # System metrics microservice
+├── agentd/               # AI agent lifecycle manager
+├── shell/                # Command middleware + executor
+├── terminal-bridge/      # Go WebSocket PTY binary
+├── host-bridge.py        # Kimi web UI spawner
+├── .env                  # Secrets (gitignored)
+├── config/
+│   ├── nginx/
+│   │   ├── jericho.conf          # Generated from template
+│   │   └── jericho.conf.template # Source template
+│   └── systemd/                  # Service templates
+│       ├── jericho-monitor.service.template
+│       ├── jericho-agentd.service.template
+│       ├── jericho-shell.service.template
+│       ├── jericho-host-bridge.service.template
+│       └── jericho-terminal-bridge.service.template
+└── docker-compose.yml
+```
+
+### Customization
+All environment-specific values are in `.env`:
+- `JERICHO_USER` — OS user running services
+- `JERICHO_USER_HOME` — Home directory (for Kimi sessions path)
+- `INSTALL_DIR` — Where Jericho is installed (default: `/srv/jericho`)
+- `JERICHO_DOMAIN` — Your domain
+- `TAILSCALE_IP` — Tailscale mesh IP
+
+To regenerate systemd units after changing `.env`:
+```bash
+envsubst < config/systemd/jericho-monitor.service.template > ~/.config/systemd/user/jericho-monitor.service
+systemctl --user daemon-reload
+systemctl --user restart jericho-monitor
 ```
 
 ---

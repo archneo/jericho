@@ -348,7 +348,7 @@
     </section>
     <section id="dashboard" class="view">
       <header class="topbar">
-        <div class="logo">⬡ Jericho <span class="build-badge">b40</span></div>
+        <div class="logo">⬡ Jericho <span class="build-badge">b41</span></div>
         <button id="fs-toggle" class="fs-toggle" aria-label="Toggle fullscreen">⛶</button>
         <div class="topbar-right">
           <a id="sudo-toggle" class="sudo-toggle" href="/" target="_blank" title="Sudo Mode" aria-label="Toggle sudo mode" style="text-decoration:none;display:inline-flex;align-items:center;cursor:pointer;">
@@ -378,7 +378,7 @@
           <div class="nav-version">
             <button class="nav-version-toggle" id="nav-version-toggle" aria-expanded="false">
               <span>⬡ Jericho</span>
-              <span class="build-badge">b40</span>
+              <span class="build-badge">b41</span>
               <span class="dev-tag">dev</span>
               <span class="version-chevron">▾</span>
             </button>
@@ -386,6 +386,12 @@
             <script>
             (function(){
               var changelog = [
+                { version: 'Build 41', tag: '0.10.0', date: '2026-06-03', changes: [
+                  'Build 41: Terminal-bridge systemd service — created user service for WebSocket PTY',
+                  'Build 41: Fixed terminal card connection — end-to-end WS ticket auth now working',
+                  'Build 41: Container image refresh and restart',
+                  'Build 41: GitHub repo sanitization — removed hardcoded paths, added systemd templates',
+                ]},
                 { version: 'Build 34', tag: '0.10.0', date: '2026-05-22', changes: [
                   'Build 34: Changelog versioning fix — each build now shows unique Build N title',
                 ]},
@@ -816,7 +822,7 @@
     </div>
   </div>
 
-  <script>const BUILD_ID = '40';</script>
+  <script>const BUILD_ID = '41';</script>
   <script src="static/js/modules/config.js?v=40"></script>
   <script src="static/js/modules/api.js?v=40"></script>
   <script src="static/js/modules/auth.js?v=40"></script>
